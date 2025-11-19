@@ -153,4 +153,74 @@ def get_color_emotions(image_path):
         return 'api error', ''
     except Exception as e:
         print(f"Error in color emotion analysis: {e}")
-        return 'api error', '' 
+        return 'api error', ''
+
+def get_color_emotion_candidates(image_path, top_n=5):
+    """色感情分析：上位候補をスコア順で返す（ユーザー選択用）"""
+    try:
+        # 画像読み込み
+        img = cv2.imread(image_path)
+        if img is None:
+            print(f"Cannot open image: {image_path}")
+            return []
+            
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        df = load_emotion_mapping()
+        
+        # 色抽出
+        counts, centers = extract_colors(rgb)
+
+        words = []
+        df_hash = hash(tuple(df.values.flatten()))  # DataFrameのハッシュ値作成
+        
+        # 各色について感情を取得（キャッシュ使用）
+        for c in centers:
+            try:
+                color_emotions = cached_color_distance(
+                    int(c[0]), int(c[1]), int(c[2]), df_hash
+                )
+                words.extend(color_emotions)
+            except Exception as e:
+                print(f"Error processing color {c}: {e}")
+                continue
+
+        # 上位候補を取得（スコア順、同点は全て含む）
+        if words:
+            # 出現回数をカウント
+            emotion_counts = Counter(words)
+            most_common = emotion_counts.most_common()
+            
+            if not most_common:
+                return []
+            
+            # 上位5位までのスコアを取得（同点を含む）
+            candidates = []
+            rank_limit = min(5, len(most_common))
+            
+            # 5位のスコアを取得
+            if len(most_common) >= rank_limit:
+                fifth_score = most_common[rank_limit - 1][1]
+            else:
+                fifth_score = 0
+            
+            # 5位以上のスコアを持つ感情語をすべて追加
+            for emotion, count in most_common:
+                if len(candidates) < rank_limit:
+                    candidates.append(emotion)
+                elif count >= fifth_score:
+                    # 5位と同点の場合は制限を超えても追加
+                    candidates.append(emotion)
+                else:
+                    # スコアが5位未満になったら終了
+                    break
+            
+            return candidates
+        else:
+            return []  # エラー時は空リスト
+        
+    except FileNotFoundError as e:
+        print(f"File not found: {e}")
+        return []
+    except Exception as e:
+        print(f"Error in color emotion candidate analysis: {e}")
+        return [] 

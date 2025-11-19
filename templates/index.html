@@ -171,18 +171,6 @@
         <form id="analyze-form" enctype="multipart/form-data">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">行きたい旅行先</label>
-              <select id="region" name="region" class="form-select" required>
-                <option value="" disabled selected>地域を選択</option>
-                <option>東京</option>
-                <option>大阪</option>
-                <option>京都</option>
-                <option>那須</option>
-                <option>自分で入力</option>
-              </select>
-              <input type="text" id="region-other" name="region_other" class="form-input hidden" placeholder="地域を入力してください">
-            </div>
-            <div class="form-group">
               <label class="form-label">旅行目的</label>
               <select id="purpose" name="purpose" class="form-select" required>
                 <option value="" disabled selected>目的を選択</option>
@@ -225,6 +213,27 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- 色彩感情選択セクション -->
+  <section class="color-selection hidden" id="color-selection">
+    <div class="container">
+      <h2 class="section-title center">
+        <span class="section-title-main">COLOR EMOTION</span>
+        <span class="section-title-sub">色彩感情を選択してください</span>
+      </h2>
+      
+      <div class="selection-info">
+        <p class="selection-description">
+          画像から抽出された色彩感情の候補です。<br>
+          あなたの今の気持ちに最も近いものを選択してください。
+        </p>
+      </div>
+      
+      <div class="color-candidates" id="color-candidates">
+        <!-- 動的にボタンが挿入される -->
       </div>
     </div>
   </section>

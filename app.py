@@ -472,6 +472,57 @@ def analyze_emotions_parallel(image_path):
     
     return results
 
+def analyze_emotions_with_candidates(image_path):
+    """感情分析を並列処理で実行（色彩感情は候補リストを返す）"""
+    results = {}
+    
+    def color_analysis():
+        if not SHIKISAI_AVAILABLE:
+            raise ImportError("色彩分析モジュール(shikisai)が利用できません")
+        
+        # 色彩感情候補を取得（上位3~5個）
+        from shikisai import get_color_emotion_candidates
+        candidates = get_color_emotion_candidates(image_path, top_n=5)
+        
+        # パレット抽出（保存せずHEX配列で返す）
+        try:
+            from shikisai import extract_palette_hex
+            palette = extract_palette_hex(image_path, num_colors=5)
+        except Exception:
+            palette = []
+        
+        results['color'] = {'candidates': candidates, 'palette': palette}
+    
+    def object_analysis():
+        if not BUTTAI_AVAILABLE:
+            raise ImportError("物体検出モジュール(buttai)が利用できません")
+        
+        emotion, label = process_buttai(image_path)
+        # source判定（scene: で始まる場合はフォールバック）
+        source = 'scene' if isinstance(label, str) and label.startswith('scene:') else 'yolo'
+        results['object'] = {'emotion': emotion, 'label': label, 'source': source}
+    
+    def atmosphere_analysis():
+        if not EMO_GPT_AVAILABLE:
+            raise ImportError("雰囲気分析モジュール(emo_gpt)が利用できません")
+        
+        cap_res = process_emo(image_path)
+        results['atmosphere'] = cap_res.get('emotion_label', '不明')
+    
+    # 並列実行（エラー時は例外で停止）
+    # すべての感情分析が完了してから結果を返す
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(color_analysis),
+            executor.submit(object_analysis),
+            executor.submit(atmosphere_analysis)
+        ]
+        
+        for future in as_completed(futures, timeout=30):
+            future.result()  # エラーが発生した場合は例外を再発生
+    
+    return results
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Railway用のヘルスチェックエンドポイント（詳細診断付き）"""
@@ -563,13 +614,14 @@ def index():
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
+    """初回分析：すべての感情分析を実行し、色彩感情の候補リストを返す（観光地検索は行わない）"""
     try:
         start_time = time.time()
         
-        region = request.form.get('region')
+        # 地域は固定で「那須」
+        region = '那須'
+        
         purpose = request.form.get('purpose')
-        if not region:
-            return jsonify({'error': '地域を選択または入力してください'}), 400
         if not purpose:
             return jsonify({'error': '目的を選択または入力してください'}), 400
 
@@ -595,11 +647,11 @@ def analyze():
         # モデル初期化
         init_model()
 
-        # 感情分析を並列実行
-        emotion_results = analyze_emotions_parallel(save_path)
+        # 感情分析を並列実行（色彩感情は候補リストを返す）
+        emotion_results = analyze_emotions_with_candidates(save_path)
         
         # 結果の取得
-        color_emotion = emotion_results.get('color', {}).get('emotion', '穏やか')
+        color_candidates = emotion_results.get('color', {}).get('candidates', [])
         object_emotion = emotion_results.get('object', {}).get('emotion', '穏やか')
         object_label = emotion_results.get('object', {}).get('label')
         atmosphere_emotion = emotion_results.get('atmosphere', '穏やか')
@@ -611,14 +663,80 @@ def analyze():
 
         # 感情分析結果をターミナルに出力
         print("=" * 50)
-        print("🔍 感情分析結果:")
+        print("🔍 感情分析結果（初回）:")
         print(f"  📍 地域: {region}")
         print(f"  🎯 目的: {purpose}")
-        print(f"  🎨 色彩感情: {color_emotion}")
+        print(f"  🎨 色彩感情候補: {color_candidates}")
         print(f"  📦 物体感情: {object_emotion_display}")
         print(f"  💭 雰囲気感情: {atmosphere_emotion}")
         print("=" * 50)
 
+        # パフォーマンス測定結果
+        processing_time = time.time() - start_time
+
+        # 詳細情報を同梱
+        object_detail = emotion_results.get('object', {})
+        color_detail = emotion_results.get('color', {})
+
+        # ファイル名を返す（/finalizeで使用）
+        return jsonify({
+            'color_candidates': color_candidates,
+            'object_emotion': object_emotion_display,
+            'atmosphere_emotion': atmosphere_emotion,
+            'image_filename': unique_filename,
+            'region': region,
+            'purpose': purpose,
+            'processing_time': f"{processing_time:.2f}s",
+            'details': {
+                'object': {
+                    'label': object_detail.get('label'),
+                    'source': object_detail.get('source')
+                },
+                'color': {
+                    'palette': color_detail.get('palette', [])
+                }
+            }
+        })
+    
+    except Exception as e:
+        return jsonify({
+            'error': f'処理中にエラーが発生しました: {str(e)}'
+        }), 500
+
+@app.route('/finalize', methods=['POST'])
+def finalize():
+    """最終結果：ユーザーが選択した色彩感情で観光地検索を実行"""
+    try:
+        start_time = time.time()
+        
+        # リクエストパラメータを取得
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'リクエストデータが不正です'}), 400
+        
+        selected_color_emotion = data.get('selected_color_emotion')
+        object_emotion = data.get('object_emotion')
+        atmosphere_emotion = data.get('atmosphere_emotion')
+        region = data.get('region', '那須')
+        purpose = data.get('purpose')
+        
+        if not purpose:
+            return jsonify({'error': '目的が指定されていません'}), 400
+        
+        # 色彩感情が「どれも違う」の場合は空文字列として扱う
+        if selected_color_emotion == 'どれも違う':
+            selected_color_emotion = ''
+        
+        # 感情分析結果をターミナルに出力
+        print("=" * 50)
+        print("🔍 最終感情分析結果:")
+        print(f"  📍 地域: {region}")
+        print(f"  🎯 目的: {purpose}")
+        print(f"  🎨 選択された色彩感情: {selected_color_emotion if selected_color_emotion else '(なし)'}")
+        print(f"  📦 物体感情: {object_emotion}")
+        print(f"  💭 雰囲気感情: {atmosphere_emotion}")
+        print("=" * 50)
+        
         # 感情フィルタリング（api errorを除外）
         def filter_emotion(emotion):
             """APIエラーや無効な感情を除外"""
@@ -629,7 +747,7 @@ def analyze():
         # 有効な感情のみを抽出
         valid_emotions = [
             filter_emotion(object_emotion),
-            filter_emotion(color_emotion), 
+            filter_emotion(selected_color_emotion),  # ユーザーが選択した色彩感情
             filter_emotion(atmosphere_emotion)
         ]
         valid_emotions = [e for e in valid_emotions if e]  # 空文字を除去
@@ -703,10 +821,6 @@ def analyze():
                     except Exception:
                         photo_url = placeholder_url
                 
-                # 絶対にアップロードされた画像のパスが使用されていないことを確認
-                if save_path in photo_url or unique_filename in photo_url:
-                    photo_url = placeholder_url
-                
                 url = 'https://www.google.com/maps/search/?api=1&query=' + \
                       requests.utils.quote(f"{name} {addr}")
                 
@@ -728,33 +842,16 @@ def analyze():
                 'photo_url': flask.url_for('static', filename='images/placeholder_r1.png'),
                 'note': 'APIキー設定後、観光地の詳細情報が表示されます'
             }]
-
+        
         # パフォーマンス測定結果
         processing_time = time.time() - start_time
-
-        # 詳細情報を同梱
-        object_detail = emotion_results.get('object', {})
-        color_detail = emotion_results.get('color', {})
-        atmosphere_detail = {
-            'caption_ja': cap_res.get('caption', '') if 'cap_res' in locals() else ''
-        }
-
+        
         return jsonify({
-            'object_emotion': object_emotion_display,
-            'color_emotion': color_emotion,
+            'color_emotion': selected_color_emotion if selected_color_emotion else 'なし',
+            'object_emotion': object_emotion,
             'atmosphere_emotion': atmosphere_emotion,
             'suggestions': suggestions,
-            'processing_time': f"{processing_time:.2f}s",
-            'details': {
-                'object': {
-                    'label': object_detail.get('label'),
-                    'source': object_detail.get('source')
-                },
-                'color': {
-                    'palette': color_detail.get('palette', [])
-                },
-                'atmosphere': atmosphere_detail
-            }
+            'processing_time': f"{processing_time:.2f}s"
         })
     
     except Exception as e:
@@ -810,7 +907,7 @@ def proxy_photo(photo_ref):
 @app.route('/debug', methods=['GET'])
 def debug_diagnostics():
     """デバッグ用の詳細診断エンドポイント"""
-    try:
+    try:\
         # ターミナルに完全な診断を実行
         print_startup_diagnostics()
         

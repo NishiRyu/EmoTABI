@@ -392,8 +392,7 @@ function initializeOtherInputs() {
     }
   }
   
-  // 地域と目的の選択に対応
-  toggleOther('region','region-other');
+  // 目的の選択に対応（地域は固定のため削除）
   toggleOther('purpose','purpose-other');
 }
 
@@ -403,24 +402,8 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
   
   console.log('📁 フォーム送信開始');
   
-  // 地域の値を取得
-  const regionSelect = document.getElementById('region');
-  const regionOther = document.getElementById('region-other');
-  
-  let region = '';
-  if (regionSelect.value === '自分で入力') {
-    if (!regionOther.value.trim()) {
-      showError('「自分で入力」を選択した場合は、地域を入力してください。');
-      return;
-    }
-    region = regionOther.value.trim();
-  } else {
-    if (!regionSelect.value) {
-      showError('地域を選択してください。');
-      return;
-    }
-    region = regionSelect.value;
-  }
+  // 地域は「那須」で固定
+  const region = '那須';
   
   // 目的の値を取得
   const purposeSelect = document.getElementById('purpose');
@@ -467,7 +450,7 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
   loadingOverlay.classList.add('active');
   
   try {
-    console.log('📁 サーバーへ送信中...');
+    console.log('📁 サーバーへ送信中（初回分析）...');
     
     const response = await fetch('/analyze', {
       method: 'POST',
@@ -480,10 +463,10 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
       throw new Error(result.error || 'サーバーエラーが発生しました');
     }
     
-    console.log('📁 解析成功:', result);
+    console.log('📁 解析成功（初回）:', result);
     
-    // 結果を表示
-    showResults(result);
+    // 色彩感情選択画面を表示
+    showColorSelection(result);
     
   } catch (error) {
     console.error('📁 エラー:', error);
@@ -533,6 +516,110 @@ function showError(message) {
       errorDiv.remove();
     }, 300);
   }, 3000);
+}
+
+// グローバル変数（色彩感情選択用のデータを保持）
+let emotionData = null;
+
+function showColorSelection(json) {
+  console.log('📁 色彩感情選択画面を表示');
+  
+  // データを保存
+  emotionData = json;
+  
+  // 色彩感情選択セクションを表示
+  const colorSelectionSection = document.getElementById('color-selection');
+  colorSelectionSection.classList.remove('hidden');
+  
+  // 色彩感情候補ボタンを生成
+  const candidatesContainer = document.getElementById('color-candidates');
+  candidatesContainer.innerHTML = '';
+  
+  const candidates = json.color_candidates || [];
+  
+  // 候補がない場合のエラーハンドリング
+  if (candidates.length === 0) {
+    const errorMsg = document.createElement('p');
+    errorMsg.style.textAlign = 'center';
+    errorMsg.style.color = '#888';
+    errorMsg.textContent = '色彩感情の候補を取得できませんでした。';
+    candidatesContainer.appendChild(errorMsg);
+    return;
+  }
+  
+  // 各候補のボタンを作成
+  candidates.forEach((emotion) => {
+    const button = document.createElement('button');
+    button.className = 'candidate-button';
+    button.textContent = emotion;
+    button.addEventListener('click', () => {
+      selectColorEmotion(emotion);
+    });
+    candidatesContainer.appendChild(button);
+  });
+  
+  // 「どれも違う」ボタンを追加
+  const noneButton = document.createElement('button');
+  noneButton.className = 'candidate-button none-option';
+  noneButton.textContent = 'どれも違う';
+  noneButton.addEventListener('click', () => {
+    selectColorEmotion('どれも違う');
+  });
+  candidatesContainer.appendChild(noneButton);
+  
+  // 色彩感情選択セクションへスクロール
+  setTimeout(() => {
+    smoothScrollTo(colorSelectionSection.offsetTop - 80, 800);
+  }, 300);
+}
+
+async function selectColorEmotion(selectedEmotion) {
+  console.log('📁 色彩感情を選択:', selectedEmotion);
+  
+  // ローディング表示
+  const loadingOverlay = document.querySelector('.loading-overlay');
+  loadingOverlay.classList.add('active');
+  
+  try {
+    console.log('📁 最終結果を取得中...');
+    
+    // /finalize エンドポイントを呼び出し
+    const response = await fetch('/finalize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        selected_color_emotion: selectedEmotion,
+        object_emotion: emotionData.object_emotion,
+        atmosphere_emotion: emotionData.atmosphere_emotion,
+        region: emotionData.region,
+        purpose: emotionData.purpose
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'サーバーエラーが発生しました');
+    }
+    
+    console.log('📁 最終結果取得成功:', result);
+    
+    // 色彩感情選択セクションを非表示
+    const colorSelectionSection = document.getElementById('color-selection');
+    colorSelectionSection.classList.add('hidden');
+    
+    // 最終結果を表示
+    showResults(result);
+    
+  } catch (error) {
+    console.error('📁 エラー:', error);
+    showError(error.message);
+  } finally {
+    // ローディング非表示
+    loadingOverlay.classList.remove('active');
+  }
 }
 
 function showResults(json) {
