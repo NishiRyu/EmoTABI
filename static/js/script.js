@@ -583,16 +583,15 @@ async function selectColorEmotion(selectedEmotion) {
   try {
     console.log('📁 最終結果を取得中...');
     
-    // /finalize エンドポイントを呼び出し
+    // /finalize エンドポイントを呼び出し（task_idを含む）
     const response = await fetch('/finalize', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        task_id: emotionData.task_id,
         selected_color_emotion: selectedEmotion,
-        object_emotion: emotionData.object_emotion,
-        atmosphere_emotion: emotionData.atmosphere_emotion,
         region: emotionData.region,
         purpose: emotionData.purpose
       })
