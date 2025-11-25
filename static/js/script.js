@@ -521,7 +521,10 @@ function showError(message) {
 // グローバル変数（色彩感情選択用のデータを保持）
 let emotionData = null;
 
-function showColorSelection(json) {
+// グローバル変数（検索結果データを保持 - 言語切り替え用）
+let searchResultData = null;
+
+async function showColorSelection(json) {
   console.log('📁 色彩感情選択画面を表示');
   
   // データを保存
@@ -547,21 +550,29 @@ function showColorSelection(json) {
     return;
   }
   
-  // 各候補のボタンを作成
-  candidates.forEach((emotion) => {
+  // 各候補のボタンを作成（翻訳付き）
+  for (const emotion of candidates) {
     const button = document.createElement('button');
     button.className = 'candidate-button';
-    button.textContent = emotion;
+    
+    // 感情語を翻訳（英語モードの場合）
+    const translatedEmotion = await i18n.translate(emotion);
+    button.textContent = translatedEmotion;
+    
+    // 元のデータを保持（バックエンドに送る用）
+    button.dataset.originalEmotion = emotion;
     button.addEventListener('click', () => {
-      selectColorEmotion(emotion);
+      selectColorEmotion(emotion); // 元の日本語で送信
     });
     candidatesContainer.appendChild(button);
-  });
+  }
   
   // 「どれも違う」ボタンを追加
   const noneButton = document.createElement('button');
   noneButton.className = 'candidate-button none-option';
-  noneButton.textContent = 'どれも違う';
+  const translatedNone = await i18n.translate('どれも違う');
+  noneButton.textContent = translatedNone;
+  noneButton.dataset.originalEmotion = 'どれも違う'; // 元のテキストを保存
   noneButton.addEventListener('click', () => {
     selectColorEmotion('どれも違う');
   });
@@ -583,17 +594,19 @@ async function selectColorEmotion(selectedEmotion) {
   try {
     console.log('📁 最終結果を取得中...');
     
-    // /finalize エンドポイントを呼び出し（task_idを含む）
+    // /finalize エンドポイントを呼び出し
     const response = await fetch('/finalize', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        task_id: emotionData.task_id,
         selected_color_emotion: selectedEmotion,
+        object_emotion: emotionData.object_emotion,
+        atmosphere_emotion: emotionData.atmosphere_emotion,
         region: emotionData.region,
-        purpose: emotionData.purpose
+        purpose: emotionData.purpose,
+        language: i18n.getLocale()  // 現在の言語を送信
       })
     });
     
@@ -605,12 +618,22 @@ async function selectColorEmotion(selectedEmotion) {
     
     console.log('📁 最終結果取得成功:', result);
     
+    // 検索結果データを保存（言語切り替え用）
+    searchResultData = {
+      selectedEmotion: selectedEmotion,
+      objectEmotion: emotionData.object_emotion,
+      atmosphereEmotion: emotionData.atmosphere_emotion,
+      region: emotionData.region,
+      purpose: emotionData.purpose,
+      result: result
+    };
+    
     // 色彩感情選択セクションを非表示
     const colorSelectionSection = document.getElementById('color-selection');
     colorSelectionSection.classList.add('hidden');
     
     // 最終結果を表示
-    showResults(result);
+    await showResults(result);
     
   } catch (error) {
     console.error('📁 エラー:', error);
@@ -621,15 +644,29 @@ async function selectColorEmotion(selectedEmotion) {
   }
 }
 
-function showResults(json) {
+async function showResults(json) {
   // 結果セクションを表示
   const resultsSection = document.getElementById('results');
   resultsSection.classList.remove('hidden');
   
-  // 感情分析結果を表示
-  document.getElementById('color-emotion').textContent = json.color_emotion;
-  document.getElementById('object-emotion').textContent = json.object_emotion;
-  document.getElementById('atmosphere-emotion').textContent = json.atmosphere_emotion;
+  // 感情分析結果を表示（翻訳付き）
+  const translatedColorEmotion = await i18n.translate(json.color_emotion);
+  const translatedObjectEmotion = await i18n.translate(json.object_emotion);
+  const translatedAtmosphereEmotion = await i18n.translate(json.atmosphere_emotion);
+  
+  const colorEmotionEl = document.getElementById('color-emotion');
+  const objectEmotionEl = document.getElementById('object-emotion');
+  const atmosphereEmotionEl = document.getElementById('atmosphere-emotion');
+  
+  // 翻訳されたテキストを表示
+  colorEmotionEl.textContent = translatedColorEmotion;
+  objectEmotionEl.textContent = translatedObjectEmotion;
+  atmosphereEmotionEl.textContent = translatedAtmosphereEmotion;
+  
+  // 元のテキストを保存（再翻訳用）
+  colorEmotionEl.dataset.originalEmotion = json.color_emotion;
+  objectEmotionEl.dataset.originalEmotion = json.object_emotion;
+  atmosphereEmotionEl.dataset.originalEmotion = json.atmosphere_emotion;
 
   // 各感情の「詳細を見る」トグル（色彩=パレット、物体=名称、雰囲気=日本語訳）
   // 詳細UIは不要になったため処理なし
@@ -637,14 +674,16 @@ function showResults(json) {
   // 感情分析のアニメーション
   animateEmotionAnalysis();
   
-  // 推奨カードを表示
+  // 推奨カードを表示（非同期対応）
   const suggestionsList = document.getElementById('suggestions-list');
   suggestionsList.innerHTML = '';
   
-  json.suggestions.forEach((item, index) => {
-    const card = createRecommendationCard(item, index);
+  // カードを順番に生成して追加
+  for (let index = 0; index < json.suggestions.length; index++) {
+    const item = json.suggestions[index];
+    const card = await createRecommendationCard(item, index);
     suggestionsList.appendChild(card);
-  });
+  }
   
   // カードアニメーション
   setTimeout(() => {
@@ -659,7 +698,7 @@ function showResults(json) {
 
 // アンケート埋め込み・バナー機能は廃止
 
-function createRecommendationCard(item, index) {
+async function createRecommendationCard(item, index) {
   console.log(`🎯 カードを作成: ${item.name}`);
   
   const card = document.createElement('div');
@@ -693,7 +732,11 @@ function createRecommendationCard(item, index) {
   cardContent.className = 'card-content';
   
   if (item.note) {
-    // APIキーが設定されていない場合
+    // APIキーが設定されていない場合（翻訳対応）
+    const translatedSettingNeeded = await i18n.translate('設定が必要です');
+    const translatedNote = await i18n.translate(item.note);
+    const translatedApiInfo = await i18n.translate('Google Maps APIキーを設定することで、実際の観光地情報と写真が表示されます。');
+    
     cardContent.innerHTML = `
       <h3 class="card-title">${item.name}</h3>
       <p class="card-address">${item.addr}</p>
@@ -706,8 +749,8 @@ function createRecommendationCard(item, index) {
         color: #856404;
         font-size: 0.9rem;
       ">
-        <strong>⚠️ 設定が必要です</strong><br>
-        ${item.note}
+        <strong>⚠️ ${translatedSettingNeeded}</strong><br>
+        ${translatedNote}
       </div>
       <div class="api-info" style="
         background: #f8f9fa;
@@ -717,16 +760,19 @@ function createRecommendationCard(item, index) {
         font-size: 0.85rem;
         line-height: 1.5;
       ">
-        Google Maps APIキーを設定することで、実際の観光地情報と写真が表示されます。
+        ${translatedApiInfo}
       </div>
     `;
   } else {
-    // 通常のカード
+    // 通常のカード（翻訳対応）
+    const translatedRating = await i18n.translate('評価');
+    const translatedViewMap = await i18n.translate('地図を見る');
+    
     cardContent.innerHTML = `
       <h3 class="card-title">${item.name}</h3>
       <p class="card-address">${item.addr}</p>
-      <p class="card-rating">評価: ${item.rating}</p>
-      <a href="${item.url}" target="_blank" class="card-link">地図を見る →</a>
+      <p class="card-rating" data-original-label="評価" data-rating-value="${item.rating}">${translatedRating}: ${item.rating}</p>
+      <a href="${item.url}" target="_blank" class="card-link" data-original-text="地図を見る">${translatedViewMap} →</a>
     `;
   }
   
@@ -734,6 +780,63 @@ function createRecommendationCard(item, index) {
   card.appendChild(cardContent);
   
   return card;
+}
+
+/**
+ * 観光地データを再取得する（言語切り替え用）
+ */
+async function refetchRecommendations() {
+  if (!searchResultData) {
+    console.log('⚠️ 検索結果データがありません');
+    return;
+  }
+  
+  console.log('🔄 観光地データを再取得中...');
+  
+  try {
+    const response = await fetch('/finalize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        selected_color_emotion: searchResultData.selectedEmotion,
+        object_emotion: searchResultData.objectEmotion,
+        atmosphere_emotion: searchResultData.atmosphereEmotion,
+        region: searchResultData.region,
+        purpose: searchResultData.purpose,
+        language: i18n.getLocale()  // 現在の言語で再検索
+      })
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'サーバーエラーが発生しました');
+    }
+    
+    console.log('✅ 観光地データ再取得成功');
+    
+    // 結果データを更新
+    searchResultData.result = result;
+    
+    // 観光地カードを再生成
+    const suggestionsList = document.getElementById('suggestions-list');
+    if (suggestionsList) {
+      suggestionsList.innerHTML = '';
+      
+      for (let index = 0; index < result.suggestions.length; index++) {
+        const item = result.suggestions[index];
+        const card = await createRecommendationCard(item, index);
+        suggestionsList.appendChild(card);
+      }
+      
+      console.log('✅ 観光地カード再生成完了');
+    }
+    
+  } catch (error) {
+    console.error('❌ 観光地データ再取得エラー:', error);
+  }
 }
 
 // CSS アニメーション用のスタイル追加

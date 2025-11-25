@@ -4,8 +4,6 @@ import flask
 import time
 import sys
 import traceback
-import threading
-import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, request, render_template, jsonify
@@ -233,11 +231,6 @@ if TALISMAN_AVAILABLE:
         'frame-src': "'self' https://docs.google.com"
     }
     Talisman(app, content_security_policy=csp, force_https=False)
-
-# バックグラウンド分析結果のキャッシュ
-# task_id -> {status: 'running'|'done', object: {...}, atmosphere: {...}}
-analysis_cache = {}
-analysis_cache_lock = threading.Lock()
 
 # 起動時診断の実行
 print_startup_diagnostics()
@@ -479,75 +472,56 @@ def analyze_emotions_parallel(image_path):
     
     return results
 
-def analyze_color_emotion_only(image_path):
-    """色彩感情分析のみを実行（高速）"""
-    if not SHIKISAI_AVAILABLE:
-        raise ImportError("色彩分析モジュール(shikisai)が利用できません")
+def analyze_emotions_with_candidates(image_path):
+    """感情分析を並列処理で実行（色彩感情は候補リストを返す）"""
+    results = {}
     
-    # 色彩感情候補を取得（上位3~5個）
-    from shikisai import get_color_emotion_candidates
-    candidates = get_color_emotion_candidates(image_path, top_n=5)
+    def color_analysis():
+        if not SHIKISAI_AVAILABLE:
+            raise ImportError("色彩分析モジュール(shikisai)が利用できません")
+        
+        # 色彩感情候補を取得（上位3~5個）
+        from shikisai import get_color_emotion_candidates
+        candidates = get_color_emotion_candidates(image_path, top_n=5)
+        
+        # パレット抽出（保存せずHEX配列で返す）
+        try:
+            from shikisai import extract_palette_hex
+            palette = extract_palette_hex(image_path, num_colors=5)
+        except Exception:
+            palette = []
+        
+        results['color'] = {'candidates': candidates, 'palette': palette}
     
-    # パレット抽出（保存せずHEX配列で返す）
-    try:
-        from shikisai import extract_palette_hex
-        palette = extract_palette_hex(image_path, num_colors=5)
-    except Exception:
-        palette = []
+    def object_analysis():
+        if not BUTTAI_AVAILABLE:
+            raise ImportError("物体検出モジュール(buttai)が利用できません")
+        
+        emotion, label = process_buttai(image_path)
+        # source判定（scene: で始まる場合はフォールバック）
+        source = 'scene' if isinstance(label, str) and label.startswith('scene:') else 'yolo'
+        results['object'] = {'emotion': emotion, 'label': label, 'source': source}
     
-    return {'candidates': candidates, 'palette': palette}
-
-def analyze_object_and_atmosphere_background(task_id, image_path):
-    """物体・雰囲気分析をバックグラウンドで実行"""
-    print(f"📁 バックグラウンド分析開始 [task_id: {task_id}]")
+    def atmosphere_analysis():
+        if not EMO_GPT_AVAILABLE:
+            raise ImportError("雰囲気分析モジュール(emo_gpt)が利用できません")
+        
+        cap_res = process_emo(image_path)
+        results['atmosphere'] = cap_res.get('emotion_label', '不明')
     
-    try:
-        # 物体検出
-        object_result = {}
-        if BUTTAI_AVAILABLE:
-            try:
-                emotion, label = process_buttai(image_path)
-                source = 'scene' if isinstance(label, str) and label.startswith('scene:') else 'yolo'
-                object_result = {'emotion': emotion, 'label': label, 'source': source}
-                print(f"  📦 物体検出完了: {emotion}")
-            except Exception as e:
-                print(f"  ⚠️ 物体検出エラー: {str(e)}")
-                object_result = {'emotion': 'api error', 'label': 'no_object', 'source': 'error'}
-        else:
-            object_result = {'emotion': 'api error', 'label': 'no_object', 'source': 'unavailable'}
+    # 並列実行（エラー時は例外で停止）
+    # すべての感情分析が完了してから結果を返す
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(color_analysis),
+            executor.submit(object_analysis),
+            executor.submit(atmosphere_analysis)
+        ]
         
-        # 雰囲気分析
-        atmosphere_result = '不明'
-        if EMO_GPT_AVAILABLE:
-            try:
-                cap_res = process_emo(image_path)
-                atmosphere_result = cap_res.get('emotion_label', '不明')
-                print(f"  💭 雰囲気分析完了: {atmosphere_result}")
-            except Exception as e:
-                print(f"  ⚠️ 雰囲気分析エラー: {str(e)}")
-                atmosphere_result = 'api error'
-        else:
-            atmosphere_result = 'unavailable'
-        
-        # キャッシュに保存
-        with analysis_cache_lock:
-            analysis_cache[task_id] = {
-                'status': 'done',
-                'object': object_result,
-                'atmosphere': atmosphere_result
-            }
-        
-        print(f"✅ バックグラウンド分析完了 [task_id: {task_id}]")
-        
-    except Exception as e:
-        print(f"❌ バックグラウンド分析エラー [task_id: {task_id}]: {str(e)}")
-        with analysis_cache_lock:
-            analysis_cache[task_id] = {
-                'status': 'error',
-                'object': {'emotion': 'api error', 'label': 'error', 'source': 'error'},
-                'atmosphere': 'api error',
-                'error': str(e)
-            }
+        for future in as_completed(futures, timeout=30):
+            future.result()  # エラーが発生した場合は例外を再発生
+    
+    return results
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -640,7 +614,7 @@ def index():
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    """初回分析：色彩感情分析を優先実行し、物体・雰囲気はバックグラウンドで処理"""
+    """初回分析：すべての感情分析を実行し、色彩感情の候補リストを返す（観光地検索は行わない）"""
     try:
         start_time = time.time()
         
@@ -659,11 +633,10 @@ def analyze():
         if f.content_length and f.content_length > 16 * 1024 * 1024:
             return jsonify({'error': '画像サイズは16MB以下にしてください'}), 400
         
-        # 一意のファイル名とタスクIDを生成
+        # 一意のファイル名を生成
+        import uuid
         file_extension = os.path.splitext(secure_filename(f.filename))[1]
         unique_filename = f"upload_{int(time.time())}_{uuid.uuid4().hex[:8]}{file_extension}"
-        task_id = str(uuid.uuid4())
-        
         save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
         f.save(save_path)
 
@@ -674,44 +647,53 @@ def analyze():
         # モデル初期化
         init_model()
 
-        # 【高速】色彩感情分析のみを同期実行
-        color_result = analyze_color_emotion_only(save_path)
-        color_candidates = color_result.get('candidates', [])
+        # 感情分析を並列実行（色彩感情は候補リストを返す）
+        emotion_results = analyze_emotions_with_candidates(save_path)
         
-        # 【非同期】物体・雰囲気分析をバックグラウンドで開始
-        with analysis_cache_lock:
-            analysis_cache[task_id] = {'status': 'running'}
-        
-        thread = threading.Thread(
-            target=analyze_object_and_atmosphere_background,
-            args=(task_id, save_path),
-            daemon=True
+        # 結果の取得
+        color_candidates = emotion_results.get('color', {}).get('candidates', [])
+        object_emotion = emotion_results.get('object', {}).get('emotion', '穏やか')
+        object_label = emotion_results.get('object', {}).get('label')
+        atmosphere_emotion = emotion_results.get('atmosphere', '穏やか')
+
+        # 表示用の物体感情（検出なし時の文言）
+        object_emotion_display = (
+            '検出されませんでした' if (object_emotion == 'api error' and object_label == 'no_object') else object_emotion
         )
-        thread.start()
+
+        # 感情分析結果をターミナルに出力
+        print("=" * 50)
+        print("🔍 感情分析結果（初回）:")
+        print(f"  📍 地域: {region}")
+        print(f"  🎯 目的: {purpose}")
+        print(f"  🎨 色彩感情候補: {color_candidates}")
+        print(f"  📦 物体感情: {object_emotion_display}")
+        print(f"  💭 雰囲気感情: {atmosphere_emotion}")
+        print("=" * 50)
 
         # パフォーマンス測定結果
         processing_time = time.time() - start_time
 
-        # 感情分析結果をターミナルに出力
-        print("=" * 50)
-        print("🔍 感情分析結果（色彩のみ・高速）:")
-        print(f"  📍 地域: {region}")
-        print(f"  🎯 目的: {purpose}")
-        print(f"  🎨 色彩感情候補: {color_candidates}")
-        print(f"  📦 物体・雰囲気: バックグラウンドで分析中... [task_id: {task_id}]")
-        print("=" * 50)
+        # 詳細情報を同梱
+        object_detail = emotion_results.get('object', {})
+        color_detail = emotion_results.get('color', {})
 
-        # 色彩候補を即座に返す（物体・雰囲気は処理中）
+        # ファイル名を返す（/finalizeで使用）
         return jsonify({
-            'task_id': task_id,
             'color_candidates': color_candidates,
+            'object_emotion': object_emotion_display,
+            'atmosphere_emotion': atmosphere_emotion,
             'image_filename': unique_filename,
             'region': region,
             'purpose': purpose,
             'processing_time': f"{processing_time:.2f}s",
             'details': {
+                'object': {
+                    'label': object_detail.get('label'),
+                    'source': object_detail.get('source')
+                },
                 'color': {
-                    'palette': color_result.get('palette', [])
+                    'palette': color_detail.get('palette', [])
                 }
             }
         })
@@ -723,7 +705,7 @@ def analyze():
 
 @app.route('/finalize', methods=['POST'])
 def finalize():
-    """最終結果：バックグラウンド分析の完了を待ち、ユーザーが選択した色彩感情で観光地検索を実行"""
+    """最終結果：ユーザーが選択した色彩感情で観光地検索を実行"""
     try:
         start_time = time.time()
         
@@ -732,56 +714,15 @@ def finalize():
         if not data:
             return jsonify({'error': 'リクエストデータが不正です'}), 400
         
-        task_id = data.get('task_id')
         selected_color_emotion = data.get('selected_color_emotion')
+        object_emotion = data.get('object_emotion')
+        atmosphere_emotion = data.get('atmosphere_emotion')
         region = data.get('region', '那須')
         purpose = data.get('purpose')
+        language = data.get('language', 'ja')  # 言語パラメータを受け取る
         
         if not purpose:
             return jsonify({'error': '目的が指定されていません'}), 400
-        
-        if not task_id:
-            return jsonify({'error': 'タスクIDが指定されていません'}), 400
-        
-        # バックグラウンド分析の完了を待つ（最大30秒）
-        print(f"📁 バックグラウンド分析の完了待ち... [task_id: {task_id}]")
-        wait_start = time.time()
-        max_wait_time = 30  # 秒
-        
-        while True:
-            with analysis_cache_lock:
-                result = analysis_cache.get(task_id)
-            
-            if result and result.get('status') == 'done':
-                print(f"✅ バックグラウンド分析完了確認 ({time.time() - wait_start:.2f}秒)")
-                object_emotion_data = result.get('object', {})
-                atmosphere_emotion = result.get('atmosphere', '不明')
-                
-                # 物体感情の取得
-                object_emotion = object_emotion_data.get('emotion', '穏やか')
-                object_label = object_emotion_data.get('label')
-                
-                # 表示用の物体感情（検出なし時の文言）
-                if object_emotion == 'api error' and object_label == 'no_object':
-                    object_emotion = '検出されませんでした'
-                
-                break
-            
-            elif result and result.get('status') == 'error':
-                print(f"⚠️ バックグラウンド分析エラー: {result.get('error', '不明')}")
-                object_emotion = '穏やか'
-                atmosphere_emotion = '穏やか'
-                break
-            
-            elif time.time() - wait_start > max_wait_time:
-                print(f"⏱️ タイムアウト: バックグラウンド分析が完了しませんでした")
-                object_emotion = 'タイムアウト'
-                atmosphere_emotion = 'タイムアウト'
-                break
-            
-            else:
-                # 0.5秒待機して再チェック
-                time.sleep(0.5)
         
         # 色彩感情が「どれも違う」の場合は空文字列として扱う
         if selected_color_emotion == 'どれも違う':
@@ -832,7 +773,7 @@ def finalize():
         seen_place_ids = set()
         
         for i, query in enumerate(queries, 1):
-            places = cached_places_search(query, language='ja')
+            places = cached_places_search(query, language=language)
             
             # この検索から1つの場所を選択（重複チェック付き）
             selected_place = None
@@ -1001,6 +942,58 @@ def get_port():
             return 5000
     except (ValueError, TypeError):
         return 5000
+
+@app.route('/translate', methods=['POST'])
+def translate_text():
+    """Google Translate APIを使用してテキストを翻訳"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'リクエストデータが不正です'}), 400
+        
+        text = data.get('text')
+        target_lang = data.get('target', 'en')
+        source_lang = data.get('source', 'ja')
+        
+        if not text:
+            return jsonify({'error': 'テキストが指定されていません'}), 400
+        
+        # Google Translate APIキーを取得
+        api_key = os.getenv('GOOGLE_TRANSLATE_API_KEY')
+        if not api_key:
+            return jsonify({'error': '翻訳APIが設定されていません'}), 500
+        
+        # Google Translate API を呼び出し
+        url = f'https://translation.googleapis.com/language/translate/v2?key={api_key}'
+        
+        # textが配列の場合（バッチ翻訳）と単一の場合を処理
+        is_batch = isinstance(text, list)
+        
+        response = requests.post(url, json={
+            'q': text,
+            'source': source_lang,
+            'target': target_lang,
+            'format': 'text'
+        })
+        
+        if response.status_code != 200:
+            print(f"翻訳APIエラー: {response.status_code} - {response.text}")
+            return jsonify({'error': '翻訳に失敗しました'}), 500
+        
+        result = response.json()
+        translations = result['data']['translations']
+        
+        # バッチ翻訳の場合は配列で返す
+        if is_batch:
+            translated_texts = [t['translatedText'] for t in translations]
+            return jsonify({'translated': translated_texts})
+        else:
+            translated_text = translations[0]['translatedText']
+            return jsonify({'translated': translated_text})
+        
+    except Exception as e:
+        print(f"翻訳エラー: {str(e)}")
+        return jsonify({'error': f'翻訳処理中にエラーが発生しました: {str(e)}'}), 500
 
 # 本番運用: .env からの読み込み（override=True）のみを利用
 if __name__ == '__main__':

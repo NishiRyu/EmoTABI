@@ -35,9 +35,19 @@
       </button>
       
       <div class="nav-menu">
-        <a href="#story" class="nav-link">EMOTABIとは</a>
-        <a href="#experience" class="nav-link">感情分析</a>
-        <a href="#journey" class="nav-link">旅を始める</a>
+        <a href="#story" class="nav-link" data-i18n>EMOTABIとは</a>
+        <a href="#experience" class="nav-link" data-i18n>感情分析</a>
+        <a href="#journey" class="nav-link" data-i18n>旅を始める</a>
+        
+        <!-- 言語切り替えボタン -->
+        <div class="lang-switcher">
+          <button class="lang-btn" data-lang="ja" onclick="i18n.setLocale('ja')">
+            🇯🇵
+          </button>
+          <button class="lang-btn" data-lang="en" onclick="i18n.setLocale('en')">
+            🇺🇸
+          </button>
+        </div>
       </div>
     </div>
   </nav>
@@ -52,9 +62,9 @@
       <div class="hero-text">
         <h1 class="hero-title">
           <span class="hero-title-main">EMOTABI</span>
-          <span class="hero-title-sub">感情と旅が交わる場所</span>
+          <span class="hero-title-sub" data-i18n>感情と旅が交わる場所</span>
         </h1>
-        <p class="hero-description">
+        <p class="hero-description" data-i18n>
           写真から感情を読み取り、あなたの心に響く旅先を提案します。<br>
           感情と旅が交わる新しい体験を始めましょう。
         </p>
@@ -70,19 +80,19 @@
         <div class="story-text">
           <h2 class="section-title">
             <span class="section-title-main">STORY</span>
-            <span class="section-title-sub">感情があなたの旅を導く</span>
+            <span class="section-title-sub" data-i18n>感情があなたの旅を導く</span>
           </h2>
           <div class="story-description">
             <p>
-              旅の本質は、その瞬間のあなたの感情と心の状態にあります。<br>
-              美しい風景、新しい出会い、美味しい食事、そして心に残る体験。
+              <span data-i18n>旅の本質は、その瞬間のあなたの感情と心の状態にあります。</span><br>
+              <span data-i18n>美しい風景、新しい出会い、美味しい食事、そして心に残る体験。</span>
             </p>
-            <p>
+            <p data-i18n>
               EMOTABIは、写真の「色彩」「物体」「雰囲気」から感情を分析し、あなたが選んだ地域の中から、その時の心に寄り添う旅先を提案します。
             </p>
             <p>
-              感情の数だけ出会いと旅がある。<br>
-              今日のあなたにぴったりの旅を見つけてみませんか。
+              <span data-i18n>感情の数だけ出会いと旅がある。</span><br>
+              <span data-i18n>今日のあなたにぴったりの旅を見つけてみませんか。</span>
             </p>
           </div>
         </div>
@@ -107,7 +117,7 @@
     <div class="container">
       <h2 class="section-title center">
         <span class="section-title-main">EXPERIENCE</span>
-        <span class="section-title-sub">3つの感情分析</span>
+        <span class="section-title-sub" data-i18n>3つの感情分析</span>
       </h2>
       
       <div class="experience-grid">
@@ -119,10 +129,10 @@
               </svg>
             </div>
           </div>
-          <h3 class="experience-title">色彩感情</h3>
+          <h3 class="experience-title" data-i18n>色彩感情</h3>
           <p class="experience-description">
-            写真の色彩から連想される<br>
-            感情を読み取ります
+            <span data-i18n>写真の色彩から連想される</span><br>
+            <span data-i18n>感情を読み取ります</span>
           </p>
         </div>
         
@@ -134,10 +144,10 @@
               </svg>
             </div>
           </div>
-          <h3 class="experience-title">物体感情</h3>
+          <h3 class="experience-title" data-i18n>物体感情</h3>
           <p class="experience-description">
-            写真に写る物体から<br>
-            感情の方向性を分析します
+            <span data-i18n>写真に写る物体から</span><br>
+            <span data-i18n>感情の方向性を分析します</span>
           </p>
         </div>
         
@@ -149,10 +159,10 @@
               </svg>
             </div>
           </div>
-          <h3 class="experience-title">雰囲気感情</h3>
+          <h3 class="experience-title" data-i18n>雰囲気感情</h3>
           <p class="experience-description">
-            写真全体の雰囲気から<br>
-            深層心理を読み解きます
+            <span data-i18n>写真全体の雰囲気から</span><br>
+            <span data-i18n>深層心理を読み解きます</span>
           </p>
         </div>
       </div>
@@ -164,28 +174,28 @@
     <div class="container">
       <h2 class="section-title center">
         <span class="section-title-main">JOURNEY</span>
-        <span class="section-title-sub">さあ、あなたの旅を始めましょう</span>
+        <span class="section-title-sub" data-i18n>さあ、あなたの旅を始めましょう</span>
       </h2>
       
       <div class="journey-form">
         <form id="analyze-form" enctype="multipart/form-data">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">旅行目的</label>
+              <label class="form-label" data-i18n>旅行目的</label>
               <select id="purpose" name="purpose" class="form-select" required>
-                <option value="" disabled selected>目的を選択</option>
-                <option>観光</option>
-                <option>ごはん</option>
-                <option>レジャー</option>
-                <option>自然</option>
-                <option>自分で入力</option>
+                <option value="" disabled selected data-i18n>目的を選択</option>
+                <option data-i18n>観光</option>
+                <option data-i18n>ごはん</option>
+                <option data-i18n>レジャー</option>
+                <option data-i18n>自然</option>
+                <option data-i18n>自分で入力</option>
               </select>
-              <input type="text" id="purpose-other" name="purpose_other" class="form-input hidden" placeholder="目的を入力してください">
+              <input type="text" id="purpose-other" name="purpose_other" class="form-input hidden" placeholder="目的を入力してください" data-i18n>
             </div>
           </div>
           
           <div class="form-upload">
-            <label class="form-label">あなたの今の気持ちを表す写真をアップロード</label>
+            <label class="form-label" data-i18n>あなたの今の気持ちを表す写真をアップロード</label>
             <div class="upload-area">
               <input type="file" id="image" name="image" accept="image/*" class="upload-input" required style="display: none;">
               <label for="image" class="upload-content">
@@ -208,7 +218,7 @@
           
           <div class="form-submit">
             <button type="submit" class="submit-button">
-              <span class="submit-text">感情分析を開始</span>
+              <span class="submit-text" data-i18n>感情分析を開始</span>
               <div class="submit-arrow">→</div>
             </button>
           </div>
@@ -222,11 +232,11 @@
     <div class="container">
       <h2 class="section-title center">
         <span class="section-title-main">COLOR EMOTION</span>
-        <span class="section-title-sub">色彩感情を選択してください</span>
+        <span class="section-title-sub" data-i18n>色彩感情を選択してください</span>
       </h2>
       
       <div class="selection-info">
-        <p class="selection-description">
+        <p class="selection-description" data-i18n>
           画像から抽出された色彩感情の候補です。<br>
           写真から感じる感情に最も近いものを選択してください。
         </p>
@@ -243,29 +253,29 @@
     <div class="container">
       <h2 class="section-title center">
         <span class="section-title-main">RESULT</span>
-        <span class="section-title-sub">あなたの感情分析結果</span>
+        <span class="section-title-sub" data-i18n>あなたの感情分析結果</span>
       </h2>
       
       <div class="emotion-analysis">
         <div class="emotion-item">
-          <div class="emotion-label">色彩感情</div>
+          <div class="emotion-label" data-i18n>色彩感情</div>
           <div class="emotion-value" id="color-emotion">-</div>
           
         </div>
         <div class="emotion-item">
-          <div class="emotion-label">物体感情</div>
+          <div class="emotion-label" data-i18n>物体感情</div>
           <div class="emotion-value" id="object-emotion">-</div>
           
         </div>
         <div class="emotion-item">
-          <div class="emotion-label">雰囲気感情</div>
+          <div class="emotion-label" data-i18n>雰囲気感情</div>
           <div class="emotion-value" id="atmosphere-emotion">-</div>
           
         </div>
       </div>
       
       <div class="recommendations">
-        <h3 class="recommendations-title">あなたにおすすめの旅先</h3>
+        <h3 class="recommendations-title" data-i18n>あなたにおすすめの旅先</h3>
         <div class="recommendations-grid" id="suggestions-list">
           <!-- 動的にカードが挿入される -->
         </div>
@@ -274,7 +284,7 @@
       <!-- シンプルなアンケートリンク -->
       <div class="survey-simple" style="text-align:center; margin: 32px 0;">
         <a href="https://forms.gle/Hc5Emtz2hJH6WMT78" target="_blank" rel="noopener" class="survey-button" style="display:inline-block; padding:12px 20px; border-radius:8px; background:#6b8e3d; color:#fff; text-decoration:none; font-weight:600;">
-          アンケートに回答する（外部フォームが開きます）
+          <span data-i18n>アンケートに回答する（外部フォームが開きます）</span>
         </a>
       </div>
     </div>
@@ -312,10 +322,14 @@
   <div class="loading-overlay">
     <div class="loading-content">
       <div class="loading-spinner"></div>
-      <div class="loading-text">感情を分析しています...</div>
+      <div class="loading-text" data-i18n>感情を分析しています...</div>
     </div>
   </div>
 
+  <!-- 多言語対応スクリプト -->
+  <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+  
+  <!-- メインスクリプト -->
   <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>
