@@ -768,9 +768,16 @@ async function createRecommendationCard(item, index) {
     const translatedRating = await i18n.translate('評価');
     const translatedViewMap = await i18n.translate('地図を見る');
     
+    // データ取得時の言語を記録
+    const currentLang = i18n.getLocale();
+    
     cardContent.innerHTML = `
-      <h3 class="card-title">${item.name}</h3>
-      <p class="card-address">${item.addr}</p>
+      <h3 class="card-title" 
+          data-original-name="${item.name}" 
+          data-original-lang="${currentLang}">${item.name}</h3>
+      <p class="card-address" 
+         data-original-address="${item.addr}" 
+         data-original-lang="${currentLang}">${item.addr}</p>
       <p class="card-rating" data-original-label="評価" data-rating-value="${item.rating}">${translatedRating}: ${item.rating}</p>
       <a href="${item.url}" target="_blank" class="card-link" data-original-text="地図を見る">${translatedViewMap} →</a>
     `;
@@ -780,63 +787,6 @@ async function createRecommendationCard(item, index) {
   card.appendChild(cardContent);
   
   return card;
-}
-
-/**
- * 観光地データを再取得する（言語切り替え用）
- */
-async function refetchRecommendations() {
-  if (!searchResultData) {
-    console.log('⚠️ 検索結果データがありません');
-    return;
-  }
-  
-  console.log('🔄 観光地データを再取得中...');
-  
-  try {
-    const response = await fetch('/finalize', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        selected_color_emotion: searchResultData.selectedEmotion,
-        object_emotion: searchResultData.objectEmotion,
-        atmosphere_emotion: searchResultData.atmosphereEmotion,
-        region: searchResultData.region,
-        purpose: searchResultData.purpose,
-        language: i18n.getLocale()  // 現在の言語で再検索
-      })
-    });
-    
-    const result = await response.json();
-    
-    if (!response.ok) {
-      throw new Error(result.error || 'サーバーエラーが発生しました');
-    }
-    
-    console.log('✅ 観光地データ再取得成功');
-    
-    // 結果データを更新
-    searchResultData.result = result;
-    
-    // 観光地カードを再生成
-    const suggestionsList = document.getElementById('suggestions-list');
-    if (suggestionsList) {
-      suggestionsList.innerHTML = '';
-      
-      for (let index = 0; index < result.suggestions.length; index++) {
-        const item = result.suggestions[index];
-        const card = await createRecommendationCard(item, index);
-        suggestionsList.appendChild(card);
-      }
-      
-      console.log('✅ 観光地カード再生成完了');
-    }
-    
-  } catch (error) {
-    console.error('❌ 観光地データ再取得エラー:', error);
-  }
 }
 
 // CSS アニメーション用のスタイル追加

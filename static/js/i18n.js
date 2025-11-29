@@ -333,31 +333,48 @@ class I18n {
   }
   
   /**
-   * 観光地カードを再翻訳（完全版：データを再取得）
+   * 観光地カードを再翻訳（観光地名と住所も翻訳）
    */
   async retranslateRecommendations() {
-    // refetchRecommendations 関数が定義されているか確認
-    if (typeof refetchRecommendations === 'function') {
-      // 観光地データをバックエンドから再取得（観光地名と住所も英語化）
-      await refetchRecommendations();
-    } else {
-      // フォールバック：固定テキストのみ再翻訳
-      const cards = document.querySelectorAll('.recommendation-card');
+    const cards = document.querySelectorAll('.recommendation-card');
+    
+    for (const card of cards) {
+      const title = card.querySelector('.card-title');
+      const address = card.querySelector('.card-address');
+      const rating = card.querySelector('.card-rating');
+      const link = card.querySelector('.card-link');
       
-      for (const card of cards) {
-        const rating = card.querySelector('.card-rating');
-        const link = card.querySelector('.card-link');
-        
-        if (rating && rating.dataset.originalLabel) {
-          const translated = await this.translate(rating.dataset.originalLabel);
-          const value = rating.dataset.ratingValue;
-          rating.textContent = `${translated}: ${value}`;
-        }
-        
-        if (link && link.dataset.originalText) {
-          const translated = await this.translate(link.dataset.originalText);
-          link.textContent = `${translated} →`;
-        }
+      // 観光地名を翻訳（元の言語を考慮）
+      if (title && title.dataset.originalName) {
+        const originalLang = title.dataset.originalLang || 'ja';
+        const translatedName = await this.translate(title.dataset.originalName, {
+          source: originalLang,
+          target: this.locale
+        });
+        title.textContent = translatedName;
+      }
+      
+      // 住所を翻訳（元の言語を考慮）
+      if (address && address.dataset.originalAddress) {
+        const originalLang = address.dataset.originalLang || 'ja';
+        const translatedAddress = await this.translate(address.dataset.originalAddress, {
+          source: originalLang,
+          target: this.locale
+        });
+        address.textContent = translatedAddress;
+      }
+      
+      // 評価ラベルを翻訳
+      if (rating && rating.dataset.originalLabel) {
+        const translated = await this.translate(rating.dataset.originalLabel);
+        const value = rating.dataset.ratingValue;
+        rating.textContent = `${translated}: ${value}`;
+      }
+      
+      // リンクテキストを翻訳
+      if (link && link.dataset.originalText) {
+        const translated = await this.translate(link.dataset.originalText);
+        link.textContent = `${translated} →`;
       }
     }
   }
@@ -392,29 +409,69 @@ class I18n {
       atmosphereEmotion.textContent = atmosphereEmotion.dataset.originalEmotion;
     }
     
-    // 3. 観光地カード（完全版：データを再取得）
-    if (typeof refetchRecommendations === 'function') {
-      // 日本語でデータを再取得
-      refetchRecommendations();
-    } else {
-      // フォールバック：固定テキストのみ復元
-      const cards = document.querySelectorAll('.recommendation-card');
-      cards.forEach(card => {
-        const rating = card.querySelector('.card-rating');
-        const link = card.querySelector('.card-link');
-        
-        if (rating && rating.dataset.originalLabel) {
-          const value = rating.dataset.ratingValue;
-          rating.textContent = `${rating.dataset.originalLabel}: ${value}`;
-        }
-        
-        if (link && link.dataset.originalText) {
-          link.textContent = `${link.dataset.originalText} →`;
-        }
-      });
-    }
+    // 3. 観光地カード（観光地名と住所も適切に復元）
+    this.restoreRecommendations();
     
     console.log('✅ 動的コンテンツの日本語復元完了');
+  }
+  
+  /**
+   * 観光地カードを日本語に復元（元の言語を考慮）
+   */
+  async restoreRecommendations() {
+    const cards = document.querySelectorAll('.recommendation-card');
+    
+    for (const card of cards) {
+      const title = card.querySelector('.card-title');
+      const address = card.querySelector('.card-address');
+      const rating = card.querySelector('.card-rating');
+      const link = card.querySelector('.card-link');
+      
+      // 観光地名を復元（元の言語を考慮）
+      if (title && title.dataset.originalName) {
+        const originalLang = title.dataset.originalLang || 'ja';
+        
+        if (originalLang === 'ja') {
+          // 元が日本語なら、そのまま復元
+          title.textContent = title.dataset.originalName;
+        } else {
+          // 元が英語なら、日本語に翻訳
+          const translated = await this.translate(title.dataset.originalName, {
+            source: originalLang,
+            target: 'ja'
+          });
+          title.textContent = translated;
+        }
+      }
+      
+      // 住所を復元（元の言語を考慮）
+      if (address && address.dataset.originalAddress) {
+        const originalLang = address.dataset.originalLang || 'ja';
+        
+        if (originalLang === 'ja') {
+          // 元が日本語なら、そのまま復元
+          address.textContent = address.dataset.originalAddress;
+        } else {
+          // 元が英語なら、日本語に翻訳
+          const translated = await this.translate(address.dataset.originalAddress, {
+            source: originalLang,
+            target: 'ja'
+          });
+          address.textContent = translated;
+        }
+      }
+      
+      // 評価ラベルを復元
+      if (rating && rating.dataset.originalLabel) {
+        const value = rating.dataset.ratingValue;
+        rating.textContent = `${rating.dataset.originalLabel}: ${value}`;
+      }
+      
+      // リンクテキストを復元
+      if (link && link.dataset.originalText) {
+        link.textContent = `${link.dataset.originalText} →`;
+      }
+    }
   }
 }
 
