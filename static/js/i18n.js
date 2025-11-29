@@ -230,10 +230,52 @@ class I18n {
       
       console.log(`✅ ${translatedTexts.length}個のテキストを翻訳しました`);
       
+      // optgroup の label 属性を翻訳
+      await this.translateOptgroupLabels();
+      
     } catch (error) {
       console.error('ページ翻訳エラー:', error);
     } finally {
       this.isTranslating = false;
+    }
+  }
+  
+  /**
+   * optgroup の label 属性を翻訳
+   */
+  async translateOptgroupLabels() {
+    if (this.locale === 'ja') {
+      return;
+    }
+    
+    try {
+      const optgroups = document.querySelectorAll('optgroup[data-i18n-label]');
+      
+      if (optgroups.length === 0) {
+        return;
+      }
+      
+      const labelsToTranslate = [];
+      const optgroupsArray = Array.from(optgroups);
+      
+      optgroupsArray.forEach(optgroup => {
+        const originalLabel = optgroup.dataset.i18nLabelOriginal || optgroup.dataset.i18nLabel;
+        if (!optgroup.dataset.i18nLabelOriginal) {
+          optgroup.dataset.i18nLabelOriginal = originalLabel;
+        }
+        labelsToTranslate.push(originalLabel);
+      });
+      
+      const translatedLabels = await this.translateBatch(labelsToTranslate);
+      
+      optgroupsArray.forEach((optgroup, index) => {
+        const icon = optgroup.label.match(/^[🌍📍]/)?.[0] || '';
+        optgroup.label = icon + ' ' + translatedLabels[index];
+      });
+      
+      console.log(`✅ ${translatedLabels.length}個のoptgroupラベルを翻訳しました`);
+    } catch (error) {
+      console.error('optgroup翻訳エラー:', error);
     }
   }
   
@@ -269,6 +311,16 @@ class I18n {
           el.textContent = originalText;
           restoredCount++;
         }
+      }
+    });
+    
+    // optgroup の label を復元
+    document.querySelectorAll('optgroup[data-i18n-label]').forEach(optgroup => {
+      const originalLabel = optgroup.dataset.i18nLabelOriginal;
+      if (originalLabel) {
+        const icon = optgroup.label.match(/^[🌍📍]/)?.[0] || '';
+        optgroup.label = icon + ' ' + originalLabel;
+        restoredCount++;
       }
     });
     
@@ -333,7 +385,7 @@ class I18n {
   }
   
   /**
-   * 観光地カードを再翻訳（観光地名と住所も翻訳）
+   * 観光地カードを再翻訳（両言語データを切り替える）
    */
   async retranslateRecommendations() {
     const cards = document.querySelectorAll('.recommendation-card');
@@ -344,24 +396,28 @@ class I18n {
       const rating = card.querySelector('.card-rating');
       const link = card.querySelector('.card-link');
       
-      // 観光地名を翻訳（元の言語を考慮）
-      if (title && title.dataset.originalName) {
-        const originalLang = title.dataset.originalLang || 'ja';
-        const translatedName = await this.translate(title.dataset.originalName, {
-          source: originalLang,
-          target: this.locale
-        });
-        title.textContent = translatedName;
+      // カードに保存された両言語データを切り替える
+      let name = this.locale === 'ja' ? card.dataset.nameJa : card.dataset.nameEn;
+      let addr = this.locale === 'ja' ? card.dataset.addrJa : card.dataset.addrEn;
+      
+      // 英語版が日本語と同じ場合（＝英語データがない）は翻訳APIを使う
+      if (this.locale === 'en' && name === card.dataset.nameJa && card.dataset.nameJa) {
+        console.log(`⚠️ 英語データなし、翻訳中: ${name}`);
+        name = await this.translate(card.dataset.nameJa, { source: 'ja', target: 'en' });
       }
       
-      // 住所を翻訳（元の言語を考慮）
-      if (address && address.dataset.originalAddress) {
-        const originalLang = address.dataset.originalLang || 'ja';
-        const translatedAddress = await this.translate(address.dataset.originalAddress, {
-          source: originalLang,
-          target: this.locale
-        });
-        address.textContent = translatedAddress;
+      if (this.locale === 'en' && addr === card.dataset.addrJa && card.dataset.addrJa) {
+        addr = await this.translate(card.dataset.addrJa, { source: 'ja', target: 'en' });
+      }
+      
+      // 観光地名を更新
+      if (title && name) {
+        title.textContent = name;
+      }
+      
+      // 住所を更新
+      if (address && addr) {
+        address.textContent = addr;
       }
       
       // 評価ラベルを翻訳
@@ -416,7 +472,7 @@ class I18n {
   }
   
   /**
-   * 観光地カードを日本語に復元（元の言語を考慮）
+   * 観光地カードを日本語に復元（両言語データから日本語を選択）
    */
   async restoreRecommendations() {
     const cards = document.querySelectorAll('.recommendation-card');
@@ -427,38 +483,18 @@ class I18n {
       const rating = card.querySelector('.card-rating');
       const link = card.querySelector('.card-link');
       
-      // 観光地名を復元（元の言語を考慮）
-      if (title && title.dataset.originalName) {
-        const originalLang = title.dataset.originalLang || 'ja';
-        
-        if (originalLang === 'ja') {
-          // 元が日本語なら、そのまま復元
-          title.textContent = title.dataset.originalName;
-        } else {
-          // 元が英語なら、日本語に翻訳
-          const translated = await this.translate(title.dataset.originalName, {
-            source: originalLang,
-            target: 'ja'
-          });
-          title.textContent = translated;
-        }
+      // カードに保存された日本語データを復元
+      const name = card.dataset.nameJa;
+      const addr = card.dataset.addrJa;
+      
+      // 観光地名を復元
+      if (title && name) {
+        title.textContent = name;
       }
       
-      // 住所を復元（元の言語を考慮）
-      if (address && address.dataset.originalAddress) {
-        const originalLang = address.dataset.originalLang || 'ja';
-        
-        if (originalLang === 'ja') {
-          // 元が日本語なら、そのまま復元
-          address.textContent = address.dataset.originalAddress;
-        } else {
-          // 元が英語なら、日本語に翻訳
-          const translated = await this.translate(address.dataset.originalAddress, {
-            source: originalLang,
-            target: 'ja'
-          });
-          address.textContent = translated;
-        }
+      // 住所を復元
+      if (address && addr) {
+        address.textContent = addr;
       }
       
       // 評価ラベルを復元

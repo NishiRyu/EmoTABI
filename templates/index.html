@@ -181,13 +181,41 @@
         <form id="analyze-form" enctype="multipart/form-data">
           <div class="form-row">
             <div class="form-group">
+              <label class="form-label">
+                <span class="icon">🗺️</span>
+                <span data-i18n>探したいエリア</span>
+                <span style="color: #e74c3c; margin-left: 4px;">*</span>
+              </label>
+              <select id="region-select" name="region" class="form-select" required>
+                <option value="" data-i18n>-- エリアを選択してください --</option>
+                <optgroup label="広域検索（初めての方におすすめ）" data-i18n-label="広域検索（初めての方におすすめ）">
+                  <option value="nasu_wide" data-i18n>那須全域</option>
+                </optgroup>
+                <optgroup label="詳細エリア（エリアを絞って探したい方向け）" data-i18n-label="詳細エリア（エリアを絞って探したい方向け）">
+                  <option value="nasu_kogen" data-i18n>那須高原周辺</option>
+                  <option value="osoyama_yumoto" data-i18n>遅山・湯本周辺</option>
+                  <option value="otani_osawa" data-i18n>大谷・大沢周辺</option>
+                  <option value="ashino_iohno" data-i18n>芦野・伊王野周辺</option>
+                </optgroup>
+              </select>
+              <small class="form-text" style="display: block; margin-top: 8px; color: #666; font-size: 0.875rem;">
+                <span data-i18n>初めての方は「那須全域」がおすすめです</span>
+              </small>
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
               <label class="form-label" data-i18n>旅行目的</label>
               <select id="purpose" name="purpose" class="form-select" required>
                 <option value="" disabled selected data-i18n>目的を選択</option>
-                <option data-i18n>観光</option>
-                <option data-i18n>ごはん</option>
-                <option data-i18n>レジャー</option>
+                <option data-i18n>名所</option>
                 <option data-i18n>自然</option>
+                <option data-i18n>レジャー</option>
+                <option data-i18n>買い物</option>
+                <option data-i18n>食事</option>
+                <option data-i18n>宿泊</option>
+                <option data-i18n>温泉</option>
                 <option data-i18n>自分で入力</option>
               </select>
               <input type="text" id="purpose-other" name="purpose_other" class="form-input hidden" placeholder="目的を入力してください" data-i18n>
@@ -240,6 +268,11 @@
           画像から抽出された色彩感情の候補です。<br>
           写真から感じる感情に最も近いものを選択してください。
         </p>
+        
+        <!-- 共通カラーパレット表示エリア -->
+        <div class="color-palette-display" id="color-palette-display">
+          <!-- JavaScriptで動的に挿入される -->
+        </div>
       </div>
       
       <div class="color-candidates" id="color-candidates">

@@ -680,6 +680,38 @@ body {
   box-shadow: 0 4px 12px rgba(107, 142, 61, 0.3);
 }
 
+/* 共通カラーパレット表示エリア */
+.color-palette-display {
+  margin-top: var(--spacing-md);
+  display: flex;
+  justify-content: center;
+}
+
+.color-palette-container {
+  display: flex;
+  gap: 12px;
+  padding: var(--spacing-md);
+  background: var(--color-white);
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border: 2px solid var(--color-border);
+}
+
+.color-chip-large {
+  width: 60px;
+  height: 60px;
+  border-radius: 12px;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.color-chip-large:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
 .candidate-button.none-option {
   background: #f5f5f5;
   border-color: #ddd;
@@ -1596,6 +1628,17 @@ body {
   
   .recommendation-card {
     touch-action: manipulation;
+  }
+  
+  /* カラーパレットのレスポンシブ対応 */
+  .color-chip-large {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .color-palette-container {
+    gap: 8px;
+    padding: var(--spacing-sm);
   }
   
   /* スクロールのパフォーマンス向上 */

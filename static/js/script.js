@@ -402,8 +402,22 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
   
   console.log('📁 フォーム送信開始');
   
-  // 地域は「那須」で固定
-  const region = '那須';
+  // エリアを取得
+  const regionSelect = document.getElementById('region-select');
+  console.log('🔍 regionSelect:', regionSelect);
+  
+  if (!regionSelect) {
+    showError('エリア選択フィールドが見つかりません。ページを再読み込みしてください。');
+    return;
+  }
+  
+  const areaKey = regionSelect.value;
+  console.log('🔍 選択されたエリア:', areaKey);
+  
+  if (!areaKey) {
+    showError('エリアを選択してください。');
+    return;
+  }
   
   // 目的の値を取得
   const purposeSelect = document.getElementById('purpose');
@@ -433,7 +447,7 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
   }
   
   console.log('📁 送信準備完了:', {
-    region: region,
+    areaKey: areaKey,
     purpose: purpose,
     file: file.name,
     size: file.size + ' bytes'
@@ -441,7 +455,7 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
   
   // FormDataを作成
   const formData = new FormData();
-  formData.append('region', region);
+  formData.append('region', areaKey);
   formData.append('purpose', purpose);
   formData.append('image', file);
   
@@ -478,44 +492,51 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
 });
 
 function showError(message) {
+  console.error('❌ エラー表示:', message);
+  
   // エラーメッセージを表示（アニメーション付き）
   const errorDiv = document.createElement('div');
   errorDiv.className = 'error-message';
   errorDiv.style.cssText = `
     position: fixed;
-    top: 20px;
-    right: -300px;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
     background: #f8d7da;
     color: #721c24;
-    padding: 12px 20px;
-    border-radius: 8px;
-    border: 1px solid #f5c6cb;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    padding: 16px 24px;
+    border-radius: 12px;
+    border: 2px solid #f5c6cb;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
     z-index: 3000;
-    font-size: 0.9rem;
-    max-width: 300px;
-    transition: right 0.3s ease;
+    font-size: 1rem;
+    max-width: 500px;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
   `;
   
   errorDiv.innerHTML = `
-    <strong>エラー:</strong><br>
+    <strong>⚠️ エラー:</strong><br>
     ${message}
   `;
   
   document.body.appendChild(errorDiv);
   
-  // スライドイン
+  // フェードイン＆スライドイン
   setTimeout(() => {
-    errorDiv.style.right = '20px';
+    errorDiv.style.opacity = '1';
+    errorDiv.style.transform = 'translateX(-50%) translateY(0)';
   }, 100);
   
-  // スライドアウト
+  // フェードアウト
   setTimeout(() => {
-    errorDiv.style.right = '-300px';
+    errorDiv.style.opacity = '0';
+    errorDiv.style.transform = 'translateX(-50%) translateY(-20px)';
     setTimeout(() => {
       errorDiv.remove();
     }, 300);
-  }, 3000);
+  }, 4000);
 }
 
 // グローバル変数（色彩感情選択用のデータを保持）
@@ -534,6 +555,26 @@ async function showColorSelection(json) {
   const colorSelectionSection = document.getElementById('color-selection');
   colorSelectionSection.classList.remove('hidden');
   
+  // カラーパレットを取得して表示
+  const palette = json.details?.color?.palette || [];
+  const paletteDisplay = document.getElementById('color-palette-display');
+  paletteDisplay.innerHTML = '';
+  
+  if (palette.length > 0) {
+    const paletteContainer = document.createElement('div');
+    paletteContainer.className = 'color-palette-container';
+    
+    palette.forEach(color => {
+      const colorChip = document.createElement('div');
+      colorChip.className = 'color-chip-large';
+      colorChip.style.backgroundColor = color;
+      colorChip.title = color; // ツールチップでカラーコードを表示
+      paletteContainer.appendChild(colorChip);
+    });
+    
+    paletteDisplay.appendChild(paletteContainer);
+  }
+  
   // 色彩感情候補ボタンを生成
   const candidatesContainer = document.getElementById('color-candidates');
   candidatesContainer.innerHTML = '';
@@ -550,7 +591,7 @@ async function showColorSelection(json) {
     return;
   }
   
-  // 各候補のボタンを作成（翻訳付き）
+  // 各候補のボタンを作成（感情語のみ）
   for (const emotion of candidates) {
     const button = document.createElement('button');
     button.className = 'candidate-button';
@@ -604,7 +645,7 @@ async function selectColorEmotion(selectedEmotion) {
         selected_color_emotion: selectedEmotion,
         object_emotion: emotionData.object_emotion,
         atmosphere_emotion: emotionData.atmosphere_emotion,
-        region: emotionData.region,
+        area_key: emotionData.area_key,
         purpose: emotionData.purpose,
         language: i18n.getLocale()  // 現在の言語を送信
       })
@@ -623,7 +664,7 @@ async function selectColorEmotion(selectedEmotion) {
       selectedEmotion: selectedEmotion,
       objectEmotion: emotionData.object_emotion,
       atmosphereEmotion: emotionData.atmosphere_emotion,
-      region: emotionData.region,
+      area_key: emotionData.area_key,
       purpose: emotionData.purpose,
       result: result
     };
@@ -699,15 +740,26 @@ async function showResults(json) {
 // アンケート埋め込み・バナー機能は廃止
 
 async function createRecommendationCard(item, index) {
-  console.log(`🎯 カードを作成: ${item.name}`);
+  // 現在の言語に応じた名前と住所を取得
+  const currentLang = i18n.getLocale();
+  const name = currentLang === 'ja' ? item.name_ja : item.name_en;
+  const addr = currentLang === 'ja' ? item.addr_ja : item.addr_en;
+  
+  console.log(`🎯 カードを作成: ${name}`);
   
   const card = document.createElement('div');
   card.className = 'recommendation-card';
   
+  // データ属性として両言語の情報を保存（言語切り替え用）
+  card.dataset.nameJa = item.name_ja || '';
+  card.dataset.nameEn = item.name_en || '';
+  card.dataset.addrJa = item.addr_ja || '';
+  card.dataset.addrEn = item.addr_en || '';
+  
   // 画像要素の作成
   const img = document.createElement('img');
   img.className = 'card-image';
-  img.alt = item.name;
+  img.alt = name;
   img.style.opacity = '0.5';
   img.style.transition = 'opacity 0.3s ease';
   
@@ -718,7 +770,7 @@ async function createRecommendationCard(item, index) {
   
   // 画像読み込みエラー時
   img.onerror = function() {
-    console.warn(`画像の読み込みエラー: ${item.name}`);
+    console.warn(`画像の読み込みエラー: ${name}`);
     this.onerror = null;
     this.src = window.PLACEHOLDER_IMG || '/static/images/placeholder_r1.png';
     this.alt = 'プレースホルダー画像';
@@ -738,8 +790,8 @@ async function createRecommendationCard(item, index) {
     const translatedApiInfo = await i18n.translate('Google Maps APIキーを設定することで、実際の観光地情報と写真が表示されます。');
     
     cardContent.innerHTML = `
-      <h3 class="card-title">${item.name}</h3>
-      <p class="card-address">${item.addr}</p>
+      <h3 class="card-title">${name}</h3>
+      <p class="card-address">${addr}</p>
       <div class="api-note" style="
         background: #fff3cd;
         border-left: 4px solid #ffc107;
@@ -764,20 +816,13 @@ async function createRecommendationCard(item, index) {
       </div>
     `;
   } else {
-    // 通常のカード（翻訳対応）
+    // 通常のカード
     const translatedRating = await i18n.translate('評価');
     const translatedViewMap = await i18n.translate('地図を見る');
     
-    // データ取得時の言語を記録
-    const currentLang = i18n.getLocale();
-    
     cardContent.innerHTML = `
-      <h3 class="card-title" 
-          data-original-name="${item.name}" 
-          data-original-lang="${currentLang}">${item.name}</h3>
-      <p class="card-address" 
-         data-original-address="${item.addr}" 
-         data-original-lang="${currentLang}">${item.addr}</p>
+      <h3 class="card-title">${name}</h3>
+      <p class="card-address">${addr}</p>
       <p class="card-rating" data-original-label="評価" data-rating-value="${item.rating}">${translatedRating}: ${item.rating}</p>
       <a href="${item.url}" target="_blank" class="card-link" data-original-text="地図を見る">${translatedViewMap} →</a>
     `;

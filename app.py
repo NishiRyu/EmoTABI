@@ -201,6 +201,45 @@ def print_startup_diagnostics():
     print("📡 サーバーを起動中...")
     print("=" * 60 + "\n")
 
+# 那須エリア定義（座標ベース検索用）
+NASU_AREAS = {
+    "nasu_wide": {
+        "label": "那須全域",
+        "label_en": "Nasu Wide Area",
+        "center": {"lat": 37.0600, "lng": 140.0700},
+        "radius": 20000,  # 20km
+        "description": "那須全体から探したい方向け"
+    },
+    "nasu_kogen": {
+        "label": "那須高原周辺",
+        "label_en": "Nasu Highland Area",
+        "center": {"lat": 37.0200, "lng": 140.0500},
+        "radius": 8000,  # 8km
+        "description": "那須高原の中心エリア"
+    },
+    "osoyama_yumoto": {
+        "label": "遅山・湯本周辺",
+        "label_en": "Osoyama & Yumoto Area",
+        "center": {"lat": 37.0750, "lng": 140.0050},
+        "radius": 6000,  # 6km
+        "description": "那須湯本温泉・殺生石・ロープウェイ周辺"
+    },
+    "otani_osawa": {
+        "label": "大谷・大沢周辺",
+        "label_en": "Otani & Osawa Area",
+        "center": {"lat": 37.0600, "lng": 139.9900},
+        "radius": 12000,  # 12km
+        "description": "りんどう湖・那須ハイランドパーク・那須IC周辺"
+    },
+    "ashino_iohno": {
+        "label": "芦野・伊王野周辺",
+        "label_en": "Ashino & Iohno Area",
+        "center": {"lat": 36.9700, "lng": 140.1000},
+        "radius": 8000,  # 8km
+        "description": "田園風景・伊王野温泉・地元グルメ"
+    }
+}
+
 # 基本設定
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'), override=True)
@@ -402,6 +441,94 @@ def cached_places_search(query, language='ja'):
     except requests.exceptions.RequestException:
         return []
         
+    except Exception:
+        return []
+
+@lru_cache(maxsize=128)
+def cached_places_nearby_search(area_key, purpose, emotions_str='', language='ja'):
+    """
+    座標ベースのNearby Search（キャッシュ付き）
+    
+    Args:
+        area_key: NASUAREASのキー（'nasu_wide', 'nasu_gate'など）
+        purpose: 目的（'カフェ', 'レストラン'など）
+        emotions_str: 感情文字列（スペース区切り）※キャッシュのためstr化
+        language: 言語コード
+    """
+    api_key = get_google_maps_api_key()
+    if not api_key:
+        return []
+    
+    # エリア情報を取得
+    area = NASU_AREAS.get(area_key)
+    if not area:
+        return []
+    
+    location = f"{area['center']['lat']},{area['center']['lng']}"
+    radius = area['radius']
+    
+    # キーワードを構築（エリア名は含めない！）
+    keyword = f"{purpose} {emotions_str}".strip()
+    
+    # Nearby Search API
+    url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+    params = {
+        'location': location,
+        'radius': radius,
+        'keyword': keyword,
+        'language': language,
+        'key': api_key
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            status = data.get('status', 'UNKNOWN')
+            
+            if status == 'OK':
+                places = data.get('results', [])[:5]  # 多めに取得
+                
+                # 詳細情報を取得
+                detailed_places = []
+                for place in places:
+                    try:
+                        place_id = place.get('place_id')
+                        if place_id:
+                            details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+                            details_params = {
+                                'place_id': place_id,
+                                'fields': 'name,formatted_address,rating,photos,place_id',
+                                'language': language,
+                                'key': api_key
+                            }
+                            
+                            details_response = requests.get(details_url, params=details_params, timeout=10)
+                            
+                            if details_response.status_code == 200:
+                                details_data = details_response.json()
+                                if details_data.get('status') == 'OK' and 'result' in details_data:
+                                    detailed_places.append(details_data['result'])
+                                else:
+                                    detailed_places.append(place)
+                            else:
+                                detailed_places.append(place)
+                        else:
+                            detailed_places.append(place)
+                    except Exception:
+                        detailed_places.append(place)
+                
+                return detailed_places
+            else:
+                return []
+        else:
+            return []
+            
+    except requests.exceptions.Timeout:
+        return []
+    except requests.exceptions.RequestException:
+        return []
     except Exception:
         return []
 
@@ -618,8 +745,12 @@ def analyze():
     try:
         start_time = time.time()
         
-        # 地域は固定で「那須」
-        region = '那須'
+        # エリアキーを受け取る
+        area_key = request.form.get('region')
+        if not area_key or area_key not in NASU_AREAS:
+            return jsonify({'error': 'エリアを選択してください'}), 400
+        
+        area_label = NASU_AREAS[area_key]['label']
         
         purpose = request.form.get('purpose')
         if not purpose:
@@ -664,7 +795,7 @@ def analyze():
         # 感情分析結果をターミナルに出力
         print("=" * 50)
         print("🔍 感情分析結果（初回）:")
-        print(f"  📍 地域: {region}")
+        print(f"  📍 エリア: {area_label}")
         print(f"  🎯 目的: {purpose}")
         print(f"  🎨 色彩感情候補: {color_candidates}")
         print(f"  📦 物体感情: {object_emotion_display}")
@@ -684,7 +815,8 @@ def analyze():
             'object_emotion': object_emotion_display,
             'atmosphere_emotion': atmosphere_emotion,
             'image_filename': unique_filename,
-            'region': region,
+            'area_key': area_key,
+            'area_label': area_label,
             'purpose': purpose,
             'processing_time': f"{processing_time:.2f}s",
             'details': {
@@ -717,7 +849,14 @@ def finalize():
         selected_color_emotion = data.get('selected_color_emotion')
         object_emotion = data.get('object_emotion')
         atmosphere_emotion = data.get('atmosphere_emotion')
-        region = data.get('region', '那須')
+        
+        # エリアキーを受け取る
+        area_key = data.get('area_key', 'nasu_wide')
+        if area_key not in NASU_AREAS:
+            area_key = 'nasu_wide'
+        
+        area_label = NASU_AREAS[area_key]['label']
+        
         purpose = data.get('purpose')
         language = data.get('language', 'ja')  # 言語パラメータを受け取る
         
@@ -731,7 +870,7 @@ def finalize():
         # 感情分析結果をターミナルに出力
         print("=" * 50)
         print("🔍 最終感情分析結果:")
-        print(f"  📍 地域: {region}")
+        print(f"  📍 エリア: {area_label}")
         print(f"  🎯 目的: {purpose}")
         print(f"  🎨 選択された色彩感情: {selected_color_emotion if selected_color_emotion else '(なし)'}")
         print(f"  📦 物体感情: {object_emotion}")
@@ -753,27 +892,29 @@ def finalize():
         ]
         valid_emotions = [e for e in valid_emotions if e]  # 空文字を除去
         
-        # Places API検索（3つの異なる順番で検索）
-        if valid_emotions:
-            queries = [
-                f"{region} {purpose} {' '.join(valid_emotions)}",
-                f"{region} {purpose} {' '.join(reversed(valid_emotions))}",
-                f"{region} {purpose} {' '.join(valid_emotions[1:] + valid_emotions[:1])}" if len(valid_emotions) > 1 else f"{region} {purpose} {' '.join(valid_emotions)}"
-            ]
-        else:
-            # 感情データがない場合は基本検索のみ
-            queries = [
-                f"{region} {purpose}",
-                f"{region} {purpose} おすすめ",
-                f"{region} {purpose} 人気"
-            ]
-        
-        # 各検索から1つずつ結果を取得
+        # Places Nearby Search（3つの異なる順番で検索）
         final_places = []
         seen_place_ids = set()
         
-        for i, query in enumerate(queries, 1):
-            places = cached_places_search(query, language=language)
+        # 感情の順序パターンを3つ作る
+        if valid_emotions:
+            emotion_patterns = [
+                valid_emotions,
+                list(reversed(valid_emotions)),
+                valid_emotions[1:] + valid_emotions[:1] if len(valid_emotions) > 1 else valid_emotions
+            ]
+        else:
+            emotion_patterns = [[], [], []]
+        
+        for i, pattern in enumerate(emotion_patterns, 1):
+            emotions_str = ' '.join(pattern)  # キャッシュのため文字列化
+            
+            places = cached_places_nearby_search(
+                area_key=area_key,
+                purpose=purpose,
+                emotions_str=emotions_str,
+                language=language
+            )
             
             # この検索から1つの場所を選択（重複チェック付き）
             selected_place = None
@@ -799,12 +940,52 @@ def finalize():
         
         places = final_places
         
+        # 両言語版のデータを取得
         suggestions = []
         if places:
+            api_key = get_google_maps_api_key()
+            
             for i, p in enumerate(places):
-                name = p.get('name', '')
-                addr = p.get('formatted_address', '')
+                place_id = p.get('place_id')
                 rating = p.get('rating', '―')
+                
+                # 日本語版と英語版の詳細情報を取得
+                name_ja = p.get('name', '')
+                addr_ja = p.get('formatted_address', '')
+                name_en = name_ja  # デフォルトは日本語版
+                addr_en = addr_ja
+                
+                if place_id and api_key:
+                    try:
+                        # 英語版の詳細情報を取得
+                        details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+                        details_params = {
+                            'place_id': place_id,
+                            'fields': 'name,formatted_address',
+                            'language': 'en',
+                            'key': api_key
+                        }
+                        
+                        details_response = requests.get(details_url, params=details_params, timeout=10)
+                        
+                        if details_response.status_code == 200:
+                            details_data = details_response.json()
+                            if details_data.get('status') == 'OK' and 'result' in details_data:
+                                result = details_data['result']
+                                name_en = result.get('name', name_ja)
+                                addr_en = result.get('formatted_address', addr_ja)
+                                
+                                # デバッグログ：英語版が日本語と同じかチェック
+                                if name_en == name_ja:
+                                    print(f"⚠️  英語版データなし: {name_ja}")
+                                else:
+                                    print(f"✅ 英語版取得成功: {name_ja} → {name_en}")
+                            else:
+                                print(f"⚠️  Places Details API エラー: {details_data.get('status')} for {name_ja}")
+                        else:
+                            print(f"⚠️  HTTP エラー {details_response.status_code} for {name_ja}")
+                    except Exception as e:
+                        print(f"❌ 英語版取得エラー for {name_ja}: {str(e)}")
                 
                 # 画像取得処理
                 photos = p.get('photos', [])
@@ -823,14 +1004,17 @@ def finalize():
                         photo_url = placeholder_url
                 
                 url = 'https://www.google.com/maps/search/?api=1&query=' + \
-                      requests.utils.quote(f"{name} {addr}")
+                      requests.utils.quote(f"{name_ja} {addr_ja}")
                 
                 suggestion = {
-                    'name': name,
-                    'addr': addr,
+                    'name_ja': name_ja,
+                    'addr_ja': addr_ja,
+                    'name_en': name_en,
+                    'addr_en': addr_en,
                     'rating': rating,
                     'url': url,
-                    'photo_url': photo_url
+                    'photo_url': photo_url,
+                    'place_id': place_id
                 }
                 suggestions.append(suggestion)
         else:
@@ -942,6 +1126,24 @@ def get_port():
             return 5000
     except (ValueError, TypeError):
         return 5000
+
+@app.route('/api/areas', methods=['GET'])
+def get_areas():
+    """エリア一覧を返す（フロントエンド用）"""
+    try:
+        language = request.args.get('lang', 'ja')
+        
+        areas_list = []
+        for key, area in NASU_AREAS.items():
+            areas_list.append({
+                'key': key,
+                'label': area['label'] if language == 'ja' else area.get('label_en', area['label']),
+                'description': area.get('description', '')
+            })
+        
+        return jsonify({'areas': areas_list})
+    except Exception as e:
+        return jsonify({'error': f'エリア情報の取得に失敗しました: {str(e)}'}), 500
 
 @app.route('/translate', methods=['POST'])
 def translate_text():
