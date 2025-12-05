@@ -2,10 +2,14 @@ import json
 import re
 import os
 import base64
+import time
 from openai import OpenAI
 
 # OpenAIクライアントを初期化（新API対応）
 client = None
+
+# 高速モード（1回のAPI呼び出し）を使用するかどうか
+USE_FAST_MODE = True
 
 def init_openai_client():
     """OpenAI API クライアントの遅延初期化"""
@@ -23,6 +27,124 @@ def init_openai_client():
                 client = None
 
 
+def resize_and_encode_image(image_path, max_size=512):
+    """画像を縮小してBase64エンコード（案2：高速化）"""
+    try:
+        import cv2
+        img = cv2.imread(image_path)
+        if img is None:
+            # cv2で読めない場合は通常のBase64エンコード
+            with open(image_path, "rb") as f:
+                return base64.b64encode(f.read()).decode('utf-8')
+        
+        h, w = img.shape[:2]
+        # 大きい画像のみ縮小
+        if max(h, w) > max_size:
+            scale = max_size / max(h, w)
+            new_w, new_h = int(w * scale), int(h * scale)
+            img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        
+        # JPEGとしてエンコード（品質80%で圧縮）
+        _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return base64.b64encode(buffer).decode('utf-8')
+    except ImportError:
+        # cv2がない場合は通常のBase64エンコード
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode('utf-8')
+    except Exception as e:
+        print(f"Image resize error: {e}")
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode('utf-8')
+
+
+def process_emo_fast(image_path):
+    """画像から直接感情を抽出（案1：1回のAPI呼び出し）"""
+    try:
+        start_time = time.time()
+        init_openai_client()
+        if client is None:
+            return None
+        
+        # 画像を縮小してBase64エンコード（案2）
+        base64_image = resize_and_encode_image(image_path, max_size=512)
+        
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "あなたは画像の雰囲気を分析する専門家です。"
+                    "画像を見て、その雰囲気から連想される感情と簡潔な説明を出力してください。"
+                    "出力は必ずJSONのみで返してください。"
+                )
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "この画像の雰囲気を分析し、以下のJSON形式で出力してください。\n"
+                            "{\n"
+                            '  "emotion": "日本語の形容詞1語（例：穏やかな、壮大な、静かな、にぎやかな）",\n'
+                            '  "caption": "画像の簡潔な日本語説明（30文字以内）"\n'
+                            "}"
+                        )
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                    }
+                ]
+            }
+        ]
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.2,
+            max_tokens=80,
+            timeout=10,
+            response_format={"type": "json_object"}
+        )
+        
+        content = response.choices[0].message.content.strip()
+        result = json.loads(content)
+        
+        elapsed = time.time() - start_time
+        emotion = result.get('emotion', '')
+        caption = result.get('caption', '')
+        
+        # ログ出力
+        print("=== 雰囲気感情抽出（高速版） ===")
+        print(f"抽出感情: {emotion}")
+        print(f"キャプション: {caption}")
+        print(f"処理時間: {elapsed:.2f}秒")
+        print("==============================")
+        
+        if emotion and emotion != 'api error':
+            return {
+                'emotion_label': emotion,
+                'caption': caption
+            }
+        else:
+            return None
+        
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error in fast mode: {e}")
+        # 正規表現で抽出を試みる
+        try:
+            emotion_match = re.search(r'"emotion"\s*:\s*"([^"]+)"', content)
+            if emotion_match:
+                return {
+                    'emotion_label': emotion_match.group(1),
+                    'caption': ''
+                }
+        except:
+            pass
+        return None
+    except Exception as e:
+        print(f"Fast emotion extraction error: {e}")
+        return None
 
 
 
@@ -225,9 +347,13 @@ def process_emo_with_api(image_path):
 
 
 
-# 画像パスを受け取り、感情分析を行う（APIエラー版）
+# 画像パスを受け取り、感情分析を行う
 def process_emo(image_path):
-    """画像パスを受け取り、感情分析を行う（APIエラー版）"""
+    """画像パスを受け取り、感情分析を行う
+    
+    USE_FAST_MODE=True: 1回のAPI呼び出しで直接感情抽出（高速）
+    USE_FAST_MODE=False: 従来の2段階処理（キャプション生成→感情抽出）
+    """
     
     # 画像ファイル存在チェック
     if not os.path.exists(image_path):
@@ -240,9 +366,19 @@ def process_emo(image_path):
     
     # OpenAI API実行
     try:
+        # 高速モードを試行
+        if USE_FAST_MODE:
+            result = process_emo_fast(image_path)
+            if result and isinstance(result, dict) and 'emotion_label' in result:
+                emotion = result.get('emotion_label', '').strip()
+                if emotion and emotion != 'api error':
+                    return result
+            # 高速モード失敗時は従来モードにフォールバック
+            print("⚠️ 高速モード失敗、従来モードにフォールバック...")
+        
+        # 従来モード
         result = process_emo_with_api(image_path)
         if result and isinstance(result, dict) and 'emotion_label' in result:
-            # emotion_labelが有効な値かチェック
             emotion = result.get('emotion_label', '').strip()
             if emotion and emotion != 'api error':
                 return result

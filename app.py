@@ -447,13 +447,17 @@ def cached_places_search(query, language='ja'):
 @lru_cache(maxsize=128)
 def cached_places_nearby_search(area_key, purpose, emotions_str='', language='ja'):
     """
-    座標ベースのNearby Search（キャッシュ付き）
+    座標ベースのNearby Search（キャッシュ付き・高速版）
     
     Args:
         area_key: NASUAREASのキー（'nasu_wide', 'nasu_gate'など）
         purpose: 目的（'カフェ', 'レストラン'など）
         emotions_str: 感情文字列（スペース区切り）※キャッシュのためstr化
         language: 言語コード
+    
+    Note:
+        詳細情報（formatted_address等）は取得せず、Nearby Searchの結果をそのまま返す。
+        詳細情報は /finalize で選択された場所に対してのみ取得する（案A: 高速化）。
     """
     api_key = get_google_maps_api_key()
     if not api_key:
@@ -488,38 +492,9 @@ def cached_places_nearby_search(area_key, purpose, emotions_str='', language='ja
             status = data.get('status', 'UNKNOWN')
             
             if status == 'OK':
-                places = data.get('results', [])[:5]  # 多めに取得
-                
-                # 詳細情報を取得
-                detailed_places = []
-                for place in places:
-                    try:
-                        place_id = place.get('place_id')
-                        if place_id:
-                            details_url = "https://maps.googleapis.com/maps/api/place/details/json"
-                            details_params = {
-                                'place_id': place_id,
-                                'fields': 'name,formatted_address,rating,photos,place_id',
-                                'language': language,
-                                'key': api_key
-                            }
-                            
-                            details_response = requests.get(details_url, params=details_params, timeout=10)
-                            
-                            if details_response.status_code == 200:
-                                details_data = details_response.json()
-                                if details_data.get('status') == 'OK' and 'result' in details_data:
-                                    detailed_places.append(details_data['result'])
-                                else:
-                                    detailed_places.append(place)
-                            else:
-                                detailed_places.append(place)
-                        else:
-                            detailed_places.append(place)
-                    except Exception:
-                        detailed_places.append(place)
-                
-                return detailed_places
+                # 詳細情報は取得せず、Nearby Searchの結果をそのまま返す（高速化）
+                places = data.get('results', [])[:5]
+                return places
             else:
                 return []
         else:
@@ -531,6 +506,34 @@ def cached_places_nearby_search(area_key, purpose, emotions_str='', language='ja
         return []
     except Exception:
         return []
+
+
+def get_place_details(place_id, language='ja'):
+    """
+    Place Details APIで詳細情報を取得（単一場所用）
+    """
+    api_key = get_google_maps_api_key()
+    if not api_key or not place_id:
+        return {}
+    
+    try:
+        details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+        details_params = {
+            'place_id': place_id,
+            'fields': 'name,formatted_address,rating,photos,place_id',
+            'language': language,
+            'key': api_key
+        }
+        
+        response = requests.get(details_url, params=details_params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 'OK' and 'result' in data:
+                return data['result']
+        return {}
+    except Exception:
+        return {}
 
 def optimize_image(file_path, max_size=(320, 320)):
     """画像サイズ最適化"""
@@ -892,10 +895,6 @@ def finalize():
         ]
         valid_emotions = [e for e in valid_emotions if e]  # 空文字を除去
         
-        # Places Nearby Search（3つの異なる順番で検索）
-        final_places = []
-        seen_place_ids = set()
-        
         # 感情の順序パターンを3つ作る
         if valid_emotions:
             emotion_patterns = [
@@ -906,17 +905,26 @@ def finalize():
         else:
             emotion_patterns = [[], [], []]
         
-        for i, pattern in enumerate(emotion_patterns, 1):
-            emotions_str = ' '.join(pattern)  # キャッシュのため文字列化
-            
-            places = cached_places_nearby_search(
+        # === 案B: 3つの検索を並列実行 ===
+        def search_with_pattern(pattern):
+            """1つのパターンで検索を実行"""
+            emotions_str = ' '.join(pattern)
+            return cached_places_nearby_search(
                 area_key=area_key,
                 purpose=purpose,
                 emotions_str=emotions_str,
                 language=language
             )
-            
-            # この検索から1つの場所を選択（重複チェック付き）
+        
+        # 並列で3つの検索を実行
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            search_results = list(executor.map(search_with_pattern, emotion_patterns))
+        
+        # 各検索結果から1件ずつ選択（重複チェック付き）
+        final_places = []
+        seen_place_ids = set()
+        
+        for i, places in enumerate(search_results, 1):
             selected_place = None
             skipped_place = None
             
@@ -927,7 +935,7 @@ def finalize():
                     seen_place_ids.add(place_id)
                     break
                 elif place_id and not skipped_place:
-                    skipped_place = place  # 最初の重複候補を記録
+                    skipped_place = place
             
             if selected_place:
                 final_places.append(selected_place)
@@ -938,68 +946,49 @@ def finalize():
             else:
                 print(f"検索{i} → 新しい場所が見つかりませんでした")
         
-        places = final_places
-        
-        # 両言語版のデータを取得
+        # === 案A: 選んだ場所だけ詳細情報を取得 ===
         suggestions = []
-        if places:
+        if final_places:
             api_key = get_google_maps_api_key()
             
-            for i, p in enumerate(places):
+            for p in final_places:
                 place_id = p.get('place_id')
-                rating = p.get('rating', '―')
                 
-                # 日本語版と英語版の詳細情報を取得
+                # Nearby Searchの結果から取得できる情報
                 name_ja = p.get('name', '')
-                addr_ja = p.get('formatted_address', '')
-                name_en = name_ja  # デフォルトは日本語版
-                addr_en = addr_ja
+                rating = p.get('rating', '―')
+                photos = p.get('photos', [])
+                vicinity = p.get('vicinity', '')  # Nearby Searchで取得できる簡易住所
+                
+                # 詳細情報を取得（選んだ場所のみ）
+                addr_ja = vicinity  # デフォルトはvicinity
+                name_en = name_ja
+                addr_en = vicinity
                 
                 if place_id and api_key:
-                    try:
-                        # 英語版の詳細情報を取得
-                        details_url = "https://maps.googleapis.com/maps/api/place/details/json"
-                        details_params = {
-                            'place_id': place_id,
-                            'fields': 'name,formatted_address',
-                            'language': 'en',
-                            'key': api_key
-                        }
-                        
-                        details_response = requests.get(details_url, params=details_params, timeout=10)
-                        
-                        if details_response.status_code == 200:
-                            details_data = details_response.json()
-                            if details_data.get('status') == 'OK' and 'result' in details_data:
-                                result = details_data['result']
-                                name_en = result.get('name', name_ja)
-                                addr_en = result.get('formatted_address', addr_ja)
-                                
-                                # デバッグログ：英語版が日本語と同じかチェック
-                                if name_en == name_ja:
-                                    print(f"⚠️  英語版データなし: {name_ja}")
-                                else:
-                                    print(f"✅ 英語版取得成功: {name_ja} → {name_en}")
-                            else:
-                                print(f"⚠️  Places Details API エラー: {details_data.get('status')} for {name_ja}")
-                        else:
-                            print(f"⚠️  HTTP エラー {details_response.status_code} for {name_ja}")
-                    except Exception as e:
-                        print(f"❌ 英語版取得エラー for {name_ja}: {str(e)}")
+                    # 日本語版の詳細情報を取得（formatted_address用）
+                    details_ja = get_place_details(place_id, 'ja')
+                    if details_ja:
+                        addr_ja = details_ja.get('formatted_address', vicinity)
+                        print(f"✅ 詳細取得: {name_ja}")
+                    
+                    # 英語版の詳細情報を取得
+                    details_en = get_place_details(place_id, 'en')
+                    if details_en:
+                        name_en = details_en.get('name', name_ja)
+                        addr_en = details_en.get('formatted_address', addr_ja)
+                        if name_en != name_ja:
+                            print(f"✅ 英語版取得: {name_ja} → {name_en}")
                 
-                # 画像取得処理
-                photos = p.get('photos', [])
+                # 画像URL処理
                 placeholder_url = flask.url_for('static', filename='images/placeholder_r1.png')
                 photo_url = placeholder_url
                 
                 if photos and len(photos) > 0 and GOOGLEMAPS_AVAILABLE:
                     try:
-                        photo_info = photos[0]
-                        photo_reference = photo_info.get('photo_reference')
-                        
+                        photo_reference = photos[0].get('photo_reference')
                         if photo_reference:
                             photo_url = flask.url_for('proxy_photo', photo_ref=photo_reference, _external=True)
-                            
                     except Exception:
                         photo_url = placeholder_url
                 
