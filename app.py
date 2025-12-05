@@ -203,6 +203,13 @@ def print_startup_diagnostics():
 
 # 那須エリア定義（座標ベース検索用）
 NASU_AREAS = {
+    "nasu_shuttle_bus": {
+        "label": "周遊バス路線沿い",
+        "label_en": "Shuttle Bus Route Area",
+        "center": {"lat": 37.0600, "lng": 140.0200},
+        "radius": 5000,  # 5km
+        "description": "那須周遊バスで行ける観光地"
+    },
     "nasu_wide": {
         "label": "那須全域",
         "label_en": "Nasu Wide Area",
@@ -945,6 +952,44 @@ def finalize():
                     print(f"検索{i} → {selected_place.get('name', 'Unknown')}を取得")
             else:
                 print(f"検索{i} → 新しい場所が見つかりませんでした")
+        
+        # === フォールバック検索：結果が不足している場合、単独の感情語で再検索 ===
+        if len(final_places) < 3 and valid_emotions:
+            print("=" * 50)
+            print(f"⚠️  検索結果が{len(final_places)}件のみ。単独感情語で再検索を実行...")
+            print("=" * 50)
+            
+            # 各感情語を単独で検索
+            def search_single_emotion(emotion):
+                """1つの感情語のみで検索"""
+                return cached_places_nearby_search(
+                    area_key=area_key,
+                    purpose=purpose,
+                    emotions_str=emotion,
+                    language=language
+                )
+            
+            # 並列で各感情語単独の検索を実行
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                single_results = list(executor.map(search_single_emotion, valid_emotions))
+            
+            # フォールバック結果から不足分を補う
+            for i, (emotion, places) in enumerate(zip(valid_emotions, single_results), 1):
+                if len(final_places) >= 3:
+                    break  # 3件揃ったら終了
+                
+                for place in places:
+                    place_id = place.get('place_id')
+                    if place_id and place_id not in seen_place_ids:
+                        final_places.append(place)
+                        seen_place_ids.add(place_id)
+                        print(f"🔄 フォールバック検索{i}（{emotion}のみ）→ {place.get('name', 'Unknown')}を取得")
+                        break
+                else:
+                    print(f"🔄 フォールバック検索{i}（{emotion}のみ）→ 新しい場所が見つかりませんでした")
+            
+            print(f"✅ フォールバック後の件数: {len(final_places)}件")
+            print("=" * 50)
         
         # === 案A: 選んだ場所だけ詳細情報を取得 ===
         suggestions = []
