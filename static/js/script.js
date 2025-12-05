@@ -374,7 +374,7 @@ function initializeOtherInputs() {
     
     if (sel && txt) {
       sel.addEventListener('change', () => {
-        if (sel.value === '自分で入力') {
+        if (sel.value === '自分で入力' || sel.value === 'custom') {
           txt.classList.remove('hidden');
           txt.required = true;
           txt.focus();
@@ -392,8 +392,9 @@ function initializeOtherInputs() {
     }
   }
   
-  // 目的の選択に対応（地域は固定のため削除）
+  // 目的と地域の選択に対応
   toggleOther('purpose','purpose-other');
+  toggleOther('region-select','region-custom');
 }
 
 // フォーム送信処理（刷新版）
@@ -402,21 +403,30 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
   
   console.log('📁 フォーム送信開始');
   
-  // エリアを取得
+  // 地域を取得
   const regionSelect = document.getElementById('region-select');
+  const regionCustom = document.getElementById('region-custom');
   console.log('🔍 regionSelect:', regionSelect);
   
   if (!regionSelect) {
-    showError('エリア選択フィールドが見つかりません。ページを再読み込みしてください。');
+    showError('地域選択フィールドが見つかりません。ページを再読み込みしてください。');
     return;
   }
   
-  const areaKey = regionSelect.value;
-  console.log('🔍 選択されたエリア:', areaKey);
+  const regionKey = regionSelect.value;
+  console.log('🔍 選択された地域:', regionKey);
   
-  if (!areaKey) {
-    showError('エリアを選択してください。');
+  if (!regionKey) {
+    showError('地域を選択してください。');
     return;
+  }
+  
+  // カスタム地域の入力チェック
+  if (regionKey === 'custom') {
+    if (!regionCustom || !regionCustom.value.trim()) {
+      showError('地域名を入力してください。');
+      return;
+    }
   }
   
   // 目的の値を取得
@@ -447,7 +457,8 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
   }
   
   console.log('📁 送信準備完了:', {
-    areaKey: areaKey,
+    regionKey: regionKey,
+    regionCustom: regionKey === 'custom' ? regionCustom.value.trim() : '',
     purpose: purpose,
     file: file.name,
     size: file.size + ' bytes'
@@ -455,7 +466,10 @@ document.getElementById('analyze-form').addEventListener('submit', async functio
   
   // FormDataを作成
   const formData = new FormData();
-  formData.append('region', areaKey);
+  formData.append('region', regionKey);
+  if (regionKey === 'custom' && regionCustom) {
+    formData.append('region_custom', regionCustom.value.trim());
+  }
   formData.append('purpose', purpose);
   formData.append('image', file);
   
@@ -645,7 +659,7 @@ async function selectColorEmotion(selectedEmotion) {
         selected_color_emotion: selectedEmotion,
         object_emotion: emotionData.object_emotion,
         atmosphere_emotion: emotionData.atmosphere_emotion,
-        area_key: emotionData.area_key,
+        region_name: emotionData.region_name,
         purpose: emotionData.purpose,
         language: i18n.getLocale()  // 現在の言語を送信
       })
@@ -664,7 +678,7 @@ async function selectColorEmotion(selectedEmotion) {
       selectedEmotion: selectedEmotion,
       objectEmotion: emotionData.object_emotion,
       atmosphereEmotion: emotionData.atmosphere_emotion,
-      area_key: emotionData.area_key,
+      region_name: emotionData.region_name,
       purpose: emotionData.purpose,
       result: result
     };

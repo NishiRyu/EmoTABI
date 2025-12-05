@@ -183,27 +183,20 @@
             <div class="form-group">
               <label class="form-label">
                 <span class="icon">🗺️</span>
-                <span data-i18n>探したいエリア</span>
+                <span data-i18n>探したい地域</span>
                 <span style="color: #e74c3c; margin-left: 4px;">*</span>
               </label>
               <select id="region-select" name="region" class="form-select" required>
-                <option value="" data-i18n>-- エリアを選択してください --</option>
-                <optgroup label="周遊バスをお持ちの方はこちら" data-i18n-label="周遊バスをお持ちの方はこちら">
-                  <option value="nasu_shuttle_bus" data-i18n>周遊バス路線沿い</option>
-                </optgroup>
-                <optgroup label="広域検索（初めての方におすすめ）" data-i18n-label="広域検索（初めての方におすすめ）">
-                  <option value="nasu_wide" data-i18n>那須全域</option>
-                </optgroup>
-                <optgroup label="詳細エリア（エリアを絞って探したい方向け）" data-i18n-label="詳細エリア（エリアを絞って探したい方向け）">
-                  <option value="nasu_kogen" data-i18n>那須高原周辺</option>
-                  <option value="osoyama_yumoto" data-i18n>遅山・湯本周辺</option>
-                  <option value="otani_osawa" data-i18n>大谷・大沢周辺</option>
-                  <option value="ashino_iohno" data-i18n>芦野・伊王野周辺</option>
-                </optgroup>
+                <option value="" data-i18n>-- 地域を選択してください --</option>
+                <option value="hokkaido" data-i18n>北海道</option>
+                <option value="tokyo" data-i18n>東京</option>
+                <option value="nagoya" data-i18n>名古屋</option>
+                <option value="kyoto" data-i18n>京都</option>
+                <option value="osaka" data-i18n>大阪</option>
+                <option value="fukuoka" data-i18n>福岡</option>
+                <option value="custom" data-i18n>その他（自分で入力）</option>
               </select>
-              <small class="form-text" style="display: block; margin-top: 8px; color: #666; font-size: 0.875rem;">
-                <span data-i18n>初めての方は「那須全域」がおすすめです</span>
-              </small>
+              <input type="text" id="region-custom" name="region_custom" class="form-input hidden" placeholder="地域名を入力してください（例：沖縄、京都、札幌）" data-i18n-placeholder="地域名を入力してください" style="margin-top: 12px;">
             </div>
           </div>
           
